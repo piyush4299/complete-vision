@@ -1,0 +1,1 @@
+ALTER TABLE public.vendors ADD COLUMN website text DEFAULT null;
