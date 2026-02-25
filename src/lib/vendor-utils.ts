@@ -343,8 +343,8 @@ export function regenerateVendorMessages(
   if (vendor.has_instagram) result.insta_message = generateInstaMessage(name, cat, city, claimLink, idx);
   if (vendor.has_phone) result.whatsapp_message = generateWhatsAppMessage(name, cat, city, claimLink, idx);
   if (vendor.has_email) {
-    result.email_subject = generateEmailSubject(name, cat, idx);
-    result.email_body = generateEmailBody(name, cat, city, claimLink);
+    result.email_subject = generateEmailSubject(name, cat, city, idx);
+    result.email_body = generateEmailBody(name, cat, city, claimLink, idx);
   }
   return result;
 }
@@ -353,54 +353,51 @@ export function regenerateVendorMessages(
 
 const INSTA_TEMPLATES = [
   (n: string, cat: string, city: string, link: string) =>
-    `Hi ${n}! Your ${cat} work is stunning. We're building CartEvent — a free platform where event vendors in ${city} get leads & direct bookings. No upfront cost, just 5% on successful bookings. Join 500+ vendors — takes 30 seconds: ${link}`,
+    `${n}, quick one —\n\nWe're inviting select ${cat}s in ${city} to join a fast-growing event booking platform.\n\n75+ vendors joined in Bangalore within 15 days.\n\nYou've been selected.\n\nActivate here (unique link):\n${link}\n\nPlatform:\ncartevent.com\n\nStart receiving leads + bookings.`,
   (n: string, cat: string, city: string, link: string) =>
-    `Hey ${n}! Love your ${cat} portfolio. CartEvent is a new platform helping ${city} event vendors get more bookings — completely free to join. You only pay when you earn. Claim your profile here: ${link}`,
-  (n: string, cat: string, city: string, link: string) =>
-    `Hi ${n}! We came across your amazing ${cat} work in ${city}. We'd love to feature you on CartEvent — it's a free vendor marketplace where customers find and book event pros directly. Set up your profile in 30 sec: ${link}`,
-  (n: string, cat: string, city: string, link: string) =>
-    `Hey ${n}! Your work caught our eye. CartEvent helps ${cat}s in ${city} get discovered by thousands of customers looking for event services. Free to list, no commitments. Check it out: ${link}`,
+    `Hi ${n},\n\nYou're among the select ${cat}s in ${city} we're inviting right now.\n\n75+ vendors already onboard in 15 days.\n\nYour activation link:\n${link}\n\nWebsite:\ncartevent.com`,
 ];
 
 const WA_TEMPLATES = [
   (n: string, cat: string, city: string, link: string) =>
-    `Hi ${n}! 👋 We found your ${cat} business in ${city} and we're impressed. CartEvent is a free platform where vendors like you get direct bookings from customers. No listing fee — you only pay 5% when you earn. Takes 30 sec to join: ${link}`,
+    `Hi ${n},\n\nWe're inviting select ${cat}s in ${city} to join a fast-growing event platform.\n\n75+ vendors already onboard in Bangalore within 15 days.\n\nYou've been selected.\n\nActivate your unique profile here:\n${link}\n\nWebsite:\ncartevent.com\n\nSign up and start receiving leads and bookings.`,
   (n: string, cat: string, city: string, link: string) =>
-    `Hey ${n}! CartEvent is helping ${cat}s in ${city} get more event bookings. Free to join, thousands of customers searching every month. Claim your profile: ${link}`,
-  (n: string, cat: string, city: string, link: string) =>
-    `Hi ${n}! Quick question — are you open to getting more ${cat} bookings in ${city}? CartEvent is a free vendor marketplace. 500+ vendors already on board. Check it out: ${link}`,
-  (n: string, cat: string, city: string, link: string) =>
-    `Hey ${n}! We're reaching out to top ${cat}s in ${city}. CartEvent is a free platform where customers find and book event vendors directly. Would love to have you: ${link}`,
+    `Hi ${n},\n\nYou've been selected for onboarding as a ${cat} in ${city}.\n\n75+ vendors joined within 15 days of launch in Bangalore.\n\nActivate here:\n${link}\n\nPlatform:\ncartevent.com\n\nCompletely free right now.`,
 ];
 
 const EMAIL_SUBJECTS = [
-  (n: string, cat: string) => `Free listing for your ${cat} business on CartEvent`,
-  (n: string, cat: string) => `${n}, get more bookings through CartEvent (free)`,
-  (n: string, cat: string) => `Invitation: Join 500+ event vendors on CartEvent`,
-  (n: string, cat: string) => `Your ${cat} business deserves more visibility, ${n}`,
+  (n: string, cat: string, city: string) => `You're among the top ${cat}s in ${city}`,
+  (n: string, cat: string, city: string) => `${n}, quick update about your ${cat} profile`,
+  (n: string, cat: string, city: string) => `Finalizing top ${cat}s in ${city}`,
 ];
 
-const EMAIL_BODY_TEMPLATE = (n: string, cat: string, city: string, link: string) =>
-  `Hi ${n},\n\nI came across your ${cat} business in ${city} and wanted to reach out.\n\nWe're building CartEvent (cartevent.com) — a platform where customers search and book event vendors directly. Think of it as a marketplace specifically for the events industry.\n\nHere's what makes it worth checking out:\n• Free to list — no subscription, no upfront cost\n• You only pay 5% on successful bookings\n• 500+ vendors already on board, with customers searching daily\n\nSetting up your profile takes 30 seconds:\n${link}\n\nHappy to answer any questions!\n\nBest,\nAnkit Kumar\nCartEvent\ncartevent.com`;
+const EMAIL_BODY_TEMPLATES = [
+  (n: string, cat: string, city: string, link: string) =>
+    `Hi ${n},\n\nWe're inviting select ${cat}s in ${city} to join a fast-growing event booking platform.\n\nIn just 15 days, 75+ vendors have already joined in Bangalore.\n\nBased on your profile, you've been selected for onboarding.\n\nActivate your unique profile here:\n${link}\n\nExplore the platform:\ncartevent.com\n\nSign up and start receiving leads and bookings.\n\n– Animesh\nCartEvent`,
+  (n: string, cat: string, city: string, link: string) =>
+    `Hi ${n},\n\nWe're currently curating select ${cat}s in ${city}.\n\n75+ vendors onboarded in Bangalore within 15 days of launch.\n\nYou've been selected to join.\n\nActivate here (unique link):\n${link}\n\nWebsite:\ncartevent.com\n\nEarly vendors get priority visibility.\n\n– Animesh`,
+  (n: string, cat: string, city: string, link: string) =>
+    `Hi ${n},\n\nWe're finalizing this batch of select ${cat}s in ${city}.\n\n75+ vendors already live in Bangalore.\n\nIf you'd like to be included:\n\nYour activation link:\n${link}\n\nPlatform:\ncartevent.com\n\nStart getting leads and bookings.\n\n– Animesh`,
+];
 
 export function generateInstaMessage(name: string, categoryKey: string, city: string, claimLink: string, index: number): string {
   const catLabel = CATEGORIES.find((c) => c.key === categoryKey)?.label.toLowerCase() ?? categoryKey;
-  return INSTA_TEMPLATES[index % 4](name, catLabel, city, claimLink);
+  return INSTA_TEMPLATES[index % INSTA_TEMPLATES.length](name, catLabel, city, claimLink);
 }
 
 export function generateWhatsAppMessage(name: string, categoryKey: string, city: string, claimLink: string, index: number): string {
   const catLabel = CATEGORIES.find((c) => c.key === categoryKey)?.label.toLowerCase() ?? categoryKey;
-  return WA_TEMPLATES[index % 4](name, catLabel, city, claimLink);
+  return WA_TEMPLATES[index % WA_TEMPLATES.length](name, catLabel, city, claimLink);
 }
 
-export function generateEmailSubject(name: string, categoryKey: string, index: number): string {
+export function generateEmailSubject(name: string, categoryKey: string, city: string, index: number): string {
   const catLabel = CATEGORIES.find((c) => c.key === categoryKey)?.label.toLowerCase() ?? categoryKey;
-  return EMAIL_SUBJECTS[index % 4](name, catLabel);
+  return EMAIL_SUBJECTS[index % EMAIL_SUBJECTS.length](name, catLabel, city);
 }
 
-export function generateEmailBody(name: string, categoryKey: string, city: string, claimLink: string): string {
+export function generateEmailBody(name: string, categoryKey: string, city: string, claimLink: string, index: number = 0): string {
   const catLabel = CATEGORIES.find((c) => c.key === categoryKey)?.label.toLowerCase() ?? categoryKey;
-  return EMAIL_BODY_TEMPLATE(name, catLabel, city, claimLink);
+  return EMAIL_BODY_TEMPLATES[index % EMAIL_BODY_TEMPLATES.length](name, catLabel, city, claimLink);
 }
 
 // Keep backward compat
@@ -411,16 +408,28 @@ export function generateMessage(name: string, categoryKey: string, city: string,
 // --- Follow-up templates ---
 
 export const FOLLOWUP_INSTA = (n: string, cat: string, link: string) =>
-  `Hi ${n}! Just following up — we'd love to have your ${cat} business on CartEvent. It's completely free and vendors are already getting inquiries. Claim your profile: ${link}`;
+  `Quick check —\n\nShould we keep your onboarding invite active?\n\n${link}\n\ncartevent.com`;
 
 export const FOLLOWUP_WA = (n: string, cat: string, link: string) =>
-  `Hi ${n}! Just checking if you saw our message about CartEvent. It's completely free for ${cat}s. Happy to answer any questions! 🙂 ${link}`;
+  `Just checking —\n\nShould we keep your onboarding invite active?\n\n${link}\n\ncartevent.com`;
 
 export const FOLLOWUP_EMAIL_SUBJECT = (n: string) =>
-  `Following up: Free listing on CartEvent for ${n}`;
+  `Should we keep your spot active?`;
 
 export const FOLLOWUP_EMAIL_BODY = (n: string, cat: string, city: string, link: string) =>
-  `Hi ${n},\n\nJust wanted to make sure you saw my earlier email about CartEvent. We're a free platform helping ${cat}s in ${city} get more bookings.\n\nIt takes 30 seconds to set up your profile: ${link}\n\nHappy to answer any questions!\n\nBest,\nAnkit Kumar\nCartEvent`;
+  `Hi ${n},\n\nJust checking — should we keep your onboarding invite active?\n\nYour unique link:\n${link}\n\nPlatform:\ncartevent.com\n\n– Animesh`;
+
+export const FINAL_FOLLOWUP_INSTA = (n: string, cat: string, city: string, link: string) =>
+  `We're finalizing this batch of ${cat}s in ${city}.\n\nConfirm your inclusion here:\n${link}\n\ncartevent.com`;
+
+export const FINAL_FOLLOWUP_WA = (n: string, cat: string, city: string, link: string) =>
+  `We're closing this onboarding round in ${city}.\n\nConfirm here if you'd like to be included:\n\n${link}\n\ncartevent.com`;
+
+export const FINAL_FOLLOWUP_EMAIL_SUBJECT = (n: string, cat: string, city: string) =>
+  `Confirming your inclusion`;
+
+export const FINAL_FOLLOWUP_EMAIL_BODY = (n: string, cat: string, city: string, link: string) =>
+  `Hi ${n},\n\nWe're closing this round of ${cat} onboarding in ${city}.\n\nIf you'd like to secure your profile:\n\n${link}\n\nWebsite:\ncartevent.com\n\n– Animesh`;
 
 // Keep backward compat
 export const FOLLOWUP_TEMPLATE = FOLLOWUP_INSTA;
