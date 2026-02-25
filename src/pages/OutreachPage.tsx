@@ -258,6 +258,13 @@ export default function OutreachPage() {
     const updates: Record<string, any> = { [statusField]: revertTo };
     if (revertTo === "pending") updates[contactedField] = null;
 
+    const EXCLUDED_STATUSES = ["interested", "not_interested", "declined", "converted", "maybe_later", "invalid"];
+    if (EXCLUDED_STATUSES.includes(vendor.overall_status)) {
+      updates.overall_status = "in_progress";
+      updates.responded_at = null;
+      updates.responded_channel = null;
+    }
+
     await supabase.from("vendors").update(updates).eq("id", vendor.id);
     await supabase.from("outreach_log").delete().eq("id", logEntry.id);
     toast({ title: `Reverted to ${revertTo}`, duration: 1500 });
