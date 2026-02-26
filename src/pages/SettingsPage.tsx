@@ -7,8 +7,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Save, RefreshCw } from "lucide-react";
-import { generateClaimLink, regenerateVendorMessages } from "@/lib/vendor-utils";
+import { Save, RefreshCw, Loader2 } from "lucide-react";
+import { generateClaimLink } from "@/lib/vendor-utils";
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Record<string, string>>({});
@@ -16,6 +16,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [savingSection, setSavingSection] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -83,14 +84,22 @@ export default function SettingsPage() {
         setRegenerating(false);
         return;
       }
+
       const updates = vendors.map(v => {
         const name = v.full_name || v.username || "there";
         const newLink = generateClaimLink(name, v.phone, v.email, baseUrl);
-        const msgs = regenerateVendorMessages(v, newLink, 0);
-        return { id: v.id, claim_link: newLink, ...msgs };
+        return supabase.from("vendors").update({ claim_link: newLink }).eq("id", v.id);
       });
-      await supabase.from("vendors").upsert(updates as any[], { onConflict: "id" });
-      toast({ title: `Updated ${updates.length} vendors with new claim links & messages` });
+      const results = await Promise.all(updates);
+      const failed = results.filter(r => r.error);
+      if (failed.length > 0) {
+        toast({ title: "Some links failed", description: `${failed.length} of ${vendors.length} failed`, variant: "destructive" });
+        setRegenerating(false);
+        return;
+      }
+
+      toast({ title: `Updated ${vendors.length} claim links` });
+      window.dispatchEvent(new Event("vendors-updated"));
     } catch (err) {
       toast({ title: "Error regenerating", variant: "destructive" });
     }
@@ -102,12 +111,20 @@ export default function SettingsPage() {
   };
 
   const saveTemplate = async (template: any) => {
-    await supabase.from("message_templates").update({
-      subject: template.subject,
-      body: template.body,
-      updated_at: new Date().toISOString(),
-    }).eq("id", template.id);
-    toast({ title: "Template saved!", duration: 1500 });
+    if (savingTemplate) return;
+    setSavingTemplate(template.id);
+    try {
+      await supabase.from("message_templates").update({
+        subject: template.subject,
+        body: template.body,
+        updated_at: new Date().toISOString(),
+      }).eq("id", template.id);
+
+      toast({ title: "Template saved!", duration: 1500 });
+      window.dispatchEvent(new Event("vendors-updated"));
+    } finally {
+      setSavingTemplate(null);
+    }
   };
 
   const settingsConfig = [
@@ -246,8 +263,9 @@ export default function SettingsPage() {
                 <p className="text-sm font-medium">
                   {channelLabel(t.channel)} — {typeLabel(t.type)}
                 </p>
-                <Button size="sm" variant="outline" onClick={() => saveTemplate(t)} className="w-full sm:w-auto shrink-0">
-                  <Save className="h-3.5 w-3.5 mr-1" /> Save
+                <Button size="sm" variant="outline" onClick={() => saveTemplate(t)} disabled={!!savingTemplate} className="w-full sm:w-auto shrink-0">
+                  {savingTemplate === t.id ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1" />}
+                  {savingTemplate === t.id ? "Updating..." : "Save"}
                 </Button>
               </div>
               {t.channel === "email" && (

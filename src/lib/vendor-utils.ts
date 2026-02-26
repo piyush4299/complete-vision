@@ -349,6 +349,25 @@ export function regenerateVendorMessages(
   return result;
 }
 
+export function applyTemplatePlaceholders(body: string, vendor: any): string {
+  const name = vendor.full_name || deriveFriendlyName(vendor.username, vendor.full_name, vendor.email);
+  const catLabel = CATEGORIES.find(c => c.key === vendor.category)?.label.toLowerCase() ?? vendor.category;
+  return body
+    .replace(/\{name\}/g, name)
+    .replace(/\{category\}/g, catLabel)
+    .replace(/\{city\}/g, vendor.city || "")
+    .replace(/\{claim_link\}/g, vendor.claim_link || "");
+}
+
+export function stableVendorHash(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) {
+    h = ((h << 5) - h) + id.charCodeAt(i);
+    h |= 0;
+  }
+  return Math.abs(h);
+}
+
 // --- Multi-channel message templates ---
 
 const INSTA_TEMPLATES = [

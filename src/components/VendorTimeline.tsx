@@ -6,7 +6,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ResponseActions } from "@/components/ResponseActions";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Copy, ExternalLink, CheckCircle2, Clock, Circle, MessageCircle, Link2, Check, Pencil, Save, X } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Copy, ExternalLink, CheckCircle2, Clock, Circle, MessageCircle, Link2, Check, Pencil, Save, X, Globe, Instagram, Phone, Mail, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CATEGORIES, generateClaimLink, generateInstaMessage, generateWhatsAppMessage, generateEmailSubject, generateEmailBody } from "@/lib/vendor-utils";
 import { SEQUENCE_LABELS, type SequenceStep, type SequenceType } from "@/lib/sequence-utils";
@@ -43,13 +44,19 @@ export function VendorTimeline({ vendorId, open, onOpenChange, onUpdate }: Vendo
 
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
-  const [editFields, setEditFields] = useState({ username: "", phone: "", email: "" });
+  const [saving, setSaving] = useState(false);
+  const [editFields, setEditFields] = useState<Record<string, string>>({});
 
   const startEditing = () => {
     setEditFields({
+      full_name: vendor?.full_name || "",
       username: vendor?.username || "",
       phone: vendor?.phone || "",
       email: vendor?.email || "",
+      website: vendor?.website || "",
+      claim_link: vendor?.claim_link || "",
+      category: vendor?.category || "uncategorized",
+      city: vendor?.city || "",
     });
     setEditing(true);
   };
@@ -57,36 +64,42 @@ export function VendorTimeline({ vendorId, open, onOpenChange, onUpdate }: Vendo
   const cancelEditing = () => setEditing(false);
 
   const saveEdits = async () => {
-    if (!vendor) return;
-    const u = editFields.username.replace(/^@/, "").trim().toLowerCase() || null;
-    const p = editFields.phone.replace(/[\s\-\(\)\+]/g, "").replace(/^91/, "").trim() || null;
-    const e = editFields.email.trim().toLowerCase() || null;
+    if (!vendor || saving) return;
+    setSaving(true);
+    try {
+      const u = editFields.username?.replace(/^@/, "").trim().toLowerCase() || null;
+      const p = editFields.phone?.trim() || null;
+      const e = editFields.email?.trim().toLowerCase() || null;
+      const fullName = editFields.full_name?.trim() || "";
 
-    const updates: Record<string, any> = {
-      username: u,
-      phone: p,
-      email: e,
-      has_instagram: !!u,
-      has_phone: !!p,
-      has_email: !!e,
-      profile_url: u ? `https://www.instagram.com/${u}/` : "",
-    };
+      const updates: Record<string, any> = {
+        full_name: fullName,
+        username: u,
+        phone: p,
+        email: e,
+        website: editFields.website?.trim() || null,
+        claim_link: editFields.claim_link?.trim() || "",
+        category: editFields.category || "uncategorized",
+        city: editFields.city?.trim() || "",
+        has_instagram: !!u,
+        has_phone: !!p,
+        has_email: !!e,
+        profile_url: u ? `https://www.instagram.com/${u}/` : "",
+      };
 
-    const { data: settingsRows } = await supabase.from("settings").select("*").eq("key", "claim_link_base").maybeSingle();
-    const claimBase = settingsRows?.value || undefined;
-    const name = vendor.full_name;
-    updates.claim_link = generateClaimLink(name, p || "", e || "", claimBase);
-    updates.insta_message = u ? generateInstaMessage(name, vendor.category, vendor.city, updates.claim_link, 0) : null;
-    updates.whatsapp_message = p ? generateWhatsAppMessage(name, vendor.category, vendor.city, updates.claim_link, 0) : null;
-    updates.email_subject = e ? generateEmailSubject(name, vendor.category, 0) : null;
-    updates.email_body = e ? generateEmailBody(name, vendor.category, vendor.city, updates.claim_link) : null;
-
-    await supabase.from("vendors").update(updates).eq("id", vendor.id);
-    toast({ title: "Vendor updated", duration: 1500 });
-    setEditing(false);
-    fetchData();
-    onUpdate?.();
-    window.dispatchEvent(new Event("vendors-updated"));
+      const { error } = await supabase.from("vendors").update(updates).eq("id", vendor.id);
+      if (error) {
+        toast({ title: "Update failed", description: error.message, variant: "destructive", duration: 4000 });
+        return;
+      }
+      toast({ title: "Vendor updated", duration: 1500 });
+      setEditing(false);
+      fetchData();
+      onUpdate?.();
+      window.dispatchEvent(new Event("vendors-updated"));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const copy = (text: string, field?: string) => {
@@ -191,22 +204,52 @@ export function VendorTimeline({ vendorId, open, onOpenChange, onUpdate }: Vendo
             {/* Contact info */}
             <div className="space-y-1.5 text-sm">
               {editing ? (
-                <div className="space-y-2 rounded-lg border p-3 bg-muted/20">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm w-5 shrink-0">📸</span>
-                    <Input value={editFields.username} onChange={e => setEditFields(f => ({ ...f, username: e.target.value }))} placeholder="Instagram handle" className="h-8 text-sm" />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm w-5 shrink-0">💬</span>
-                    <Input value={editFields.phone} onChange={e => setEditFields(f => ({ ...f, phone: e.target.value }))} placeholder="Phone number" className="h-8 text-sm" />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm w-5 shrink-0">📧</span>
-                    <Input value={editFields.email} onChange={e => setEditFields(f => ({ ...f, email: e.target.value }))} placeholder="Email address" className="h-8 text-sm" />
+                <div className="space-y-2.5 rounded-lg border p-3 bg-amber-50/30 border-amber-200">
+                  <p className="text-xs font-semibold text-amber-700">Edit Vendor Details</p>
+                  <div className="grid grid-cols-1 gap-2">
+                    <div>
+                      <label className="text-[10px] font-medium text-muted-foreground">Business Name</label>
+                      <Input className="h-8 text-xs mt-0.5" value={editFields.full_name || ""} onChange={e => setEditFields(f => ({ ...f, full_name: e.target.value }))} placeholder="Full business name" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-medium text-muted-foreground">Category</label>
+                      <Select value={editFields.category || "uncategorized"} onValueChange={v => setEditFields(f => ({ ...f, category: v }))}>
+                        <SelectTrigger className="h-8 text-xs mt-0.5"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {CATEGORIES.map(c => <SelectItem key={c.key} value={c.key}>{c.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-medium text-muted-foreground flex items-center gap-1"><Instagram className="h-3 w-3 text-pink-500" /> Instagram</label>
+                      <Input className="h-8 text-xs mt-0.5 font-mono" value={editFields.username || ""} onChange={e => setEditFields(f => ({ ...f, username: e.target.value.replace(/^@/, "") }))} placeholder="username" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-medium text-muted-foreground flex items-center gap-1"><Phone className="h-3 w-3 text-green-500" /> Phone</label>
+                      <Input className="h-8 text-xs mt-0.5 font-mono" value={editFields.phone || ""} onChange={e => setEditFields(f => ({ ...f, phone: e.target.value }))} placeholder="Phone number" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-medium text-muted-foreground flex items-center gap-1"><Mail className="h-3 w-3 text-blue-500" /> Email</label>
+                      <Input className="h-8 text-xs mt-0.5 font-mono" value={editFields.email || ""} onChange={e => setEditFields(f => ({ ...f, email: e.target.value }))} placeholder="Email address" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-medium text-muted-foreground flex items-center gap-1"><Globe className="h-3 w-3 text-gray-500" /> Website</label>
+                      <Input className="h-8 text-xs mt-0.5 font-mono" value={editFields.website || ""} onChange={e => setEditFields(f => ({ ...f, website: e.target.value }))} placeholder="Website URL" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-medium text-muted-foreground flex items-center gap-1"><Link2 className="h-3 w-3 text-emerald-600" /> Claim Link</label>
+                      <Input className="h-8 text-xs mt-0.5 font-mono" value={editFields.claim_link || ""} onChange={e => setEditFields(f => ({ ...f, claim_link: e.target.value }))} placeholder="Claim link URL" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-medium text-muted-foreground">City</label>
+                      <Input className="h-8 text-xs mt-0.5" value={editFields.city || ""} onChange={e => setEditFields(f => ({ ...f, city: e.target.value }))} placeholder="City" />
+                    </div>
                   </div>
                   <div className="flex gap-2 pt-1">
-                    <Button size="sm" onClick={saveEdits} className="h-7 text-xs"><Save className="h-3 w-3 mr-1" /> Save</Button>
-                    <Button size="sm" variant="ghost" onClick={cancelEditing} className="h-7 text-xs"><X className="h-3 w-3 mr-1" /> Cancel</Button>
+                    <Button size="sm" onClick={saveEdits} disabled={saving} className="h-7 text-xs">
+                      {saving ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Save className="h-3 w-3 mr-1" />} Save
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={cancelEditing} disabled={saving} className="h-7 text-xs"><X className="h-3 w-3 mr-1" /> Cancel</Button>
                   </div>
                 </div>
               ) : (
@@ -215,28 +258,33 @@ export function VendorTimeline({ vendorId, open, onOpenChange, onUpdate }: Vendo
                     <div className="space-y-1.5 min-w-0 flex-1">
                       {vendor.username && (
                         <a href={vendor.profile_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-primary hover:underline truncate">
-                          📸 @{vendor.username} <ExternalLink className="h-3 w-3 shrink-0" />
+                          <Instagram className="h-3.5 w-3.5 text-pink-500 shrink-0" /> @{vendor.username} <ExternalLink className="h-3 w-3 shrink-0" />
                         </a>
                       )}
                       {vendor.phone && (
                         <a href={`https://wa.me/91${vendor.phone}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-primary hover:underline">
-                          💬 {vendor.phone} <ExternalLink className="h-3 w-3 shrink-0" />
+                          <Phone className="h-3.5 w-3.5 text-green-500 shrink-0" /> {vendor.phone} <ExternalLink className="h-3 w-3 shrink-0" />
                         </a>
                       )}
                       {vendor.email && (
                         <a href={`mailto:${vendor.email}`} className="flex items-center gap-2 text-primary hover:underline truncate">
-                          📧 {vendor.email} <ExternalLink className="h-3 w-3 shrink-0" />
+                          <Mail className="h-3.5 w-3.5 text-blue-500 shrink-0" /> {vendor.email} <ExternalLink className="h-3 w-3 shrink-0" />
+                        </a>
+                      )}
+                      {vendor.website && (
+                        <a href={vendor.website.startsWith("http") ? vendor.website : `https://${vendor.website}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-primary hover:underline truncate">
+                          <Globe className="h-3.5 w-3.5 text-gray-500 shrink-0" /> {vendor.website.replace(/^https?:\/\//, "")} <ExternalLink className="h-3 w-3 shrink-0" />
                         </a>
                       )}
                     </div>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground" onClick={startEditing} title="Edit contact info">
+                    <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground" onClick={startEditing} title="Edit vendor details">
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
                   </div>
                 </>
               )}
 
-              {vendor.claim_link && (
+              {vendor.claim_link && !editing && (
                 <div className="rounded-lg border bg-gradient-to-r from-emerald-50/60 to-transparent p-2.5 mt-1 overflow-hidden">
                   <div className="flex items-center gap-2 mb-1.5">
                     <Link2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />

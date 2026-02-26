@@ -182,11 +182,12 @@ export default function UploadPage() {
       if (!matchedVendor.website && rawWebsite) updates.website = rawWebsite;
 
         if (Object.keys(updates).length > 0) {
-          const name = deriveFriendlyName(updates.username || matchedVendor.username, updates.full_name || matchedVendor.full_name, updates.email || matchedVendor.email);
+          const fullName = updates.full_name || matchedVendor.full_name || "";
+          const name = deriveFriendlyName(updates.username || matchedVendor.username, fullName, updates.email || matchedVendor.email);
           const effectivePhone = updates.phone || matchedVendor.phone;
           const effectiveEmail = updates.email || matchedVendor.email;
           if (updates.has_phone || !matchedVendor.claim_link || matchedVendor.claim_link.includes("/signup")) {
-            updates.claim_link = generateClaimLink(name, effectivePhone, effectiveEmail, claimLinkBase);
+            updates.claim_link = generateClaimLink(fullName || name, effectivePhone, effectiveEmail, claimLinkBase);
           }
           const link = updates.claim_link || matchedVendor.claim_link;
           const cat = matchedVendor.category;
@@ -216,7 +217,7 @@ export default function UploadPage() {
       if (email) seenEmails.add(email);
 
       const name = deriveFriendlyName(username, businessName, email);
-      const claimLink = generateClaimLink(name, phone, email, claimLinkBase);
+      const claimLink = generateClaimLink(businessName || name, phone, email, claimLinkBase);
       const hasInsta = !!username;
       const hasPhone = !!phone;
       const hasEmail = !!email;

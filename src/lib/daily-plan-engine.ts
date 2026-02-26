@@ -146,6 +146,7 @@ function scorePriority(
   let score = 0;
 
   if (isOverdue && type === "followup") score += 100 + Math.min(daysOverdue * 5, 50);
+  else if (isOverdue && type === "initial") score += 90 + Math.min(daysOverdue * 5, 50);
   else if (type === "followup") score += 80;
 
   score += CATEGORY_CONVERSION_BONUS[category] || 0;
@@ -432,6 +433,8 @@ export function buildDailyPlan(
   }
 
   // ── Step 4: Sort by priority, cap by remaining budget ────────────────────
+  // Overdue tasks get high priority scores so they appear first within
+  // the budget, but we still respect daily safety limits.
 
   allTasks.sort((a, b) => b.priority - a.priority);
 

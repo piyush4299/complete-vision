@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Copy, Trophy, ChevronLeft, ChevronRight, Undo2 } from "lucide-react";
+import { Copy, Trophy, ChevronLeft, ChevronRight, Undo2, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CATEGORIES } from "@/lib/vendor-utils";
 
@@ -27,22 +27,36 @@ export default function HotLeadsPage() {
     toast({ title: "Copied!", duration: 1500 });
   };
 
+  const [busy, setBusy] = useState<string | null>(null);
+
   const markConverted = async (id: string) => {
-    await supabase.from("vendors").update({ overall_status: "converted" }).eq("id", id);
-    toast({ title: "Marked as converted! 🎉", duration: 2000 });
-    fetchData();
-    window.dispatchEvent(new Event("vendors-updated"));
+    if (busy) return;
+    setBusy(`convert-${id}`);
+    try {
+      await supabase.from("vendors").update({ overall_status: "converted" }).eq("id", id);
+      toast({ title: "Marked as converted!", duration: 2000 });
+      fetchData();
+      window.dispatchEvent(new Event("vendors-updated"));
+    } finally {
+      setBusy(null);
+    }
   };
 
   const revertToContacted = async (id: string) => {
-    await supabase.from("vendors").update({
-      overall_status: "in_progress",
-      responded_at: null,
-      responded_channel: null,
-    }).eq("id", id);
-    toast({ title: "Reverted to Contacted", duration: 1500 });
-    fetchData();
-    window.dispatchEvent(new Event("vendors-updated"));
+    if (busy) return;
+    setBusy(`revert-${id}`);
+    try {
+      await supabase.from("vendors").update({
+        overall_status: "in_progress",
+        responded_at: null,
+        responded_channel: null,
+      }).eq("id", id);
+      toast({ title: "Reverted — back in outreach queue", duration: 1500 });
+      fetchData();
+      window.dispatchEvent(new Event("vendors-updated"));
+    } finally {
+      setBusy(null);
+    }
   };
 
   const getRespondedChannel = (v: any) => {
@@ -85,14 +99,14 @@ export default function HotLeadsPage() {
                   <TableCell className="text-xs max-w-[200px] truncate">{v.notes || "—"}</TableCell>
                   <TableCell>
                     <div className="flex gap-1 justify-end">
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-orange-500 hover:text-orange-600 hover:bg-orange-50" onClick={() => revertToContacted(v.id)} title="Revert to Contacted">
-                        <Undo2 className="h-3.5 w-3.5" />
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-orange-500 hover:text-orange-600 hover:bg-orange-50" disabled={!!busy} onClick={() => revertToContacted(v.id)} title="Revert to Contacted">
+                        {busy === `revert-${v.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5" />}
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => copy(v.claim_link)} title="Copy Claim Link">
+                      <Button variant="ghost" size="icon" className="h-7 w-7" disabled={!!busy} onClick={() => copy(v.claim_link)} title="Copy Claim Link">
                         <Copy className="h-3.5 w-3.5" />
                       </Button>
-                      <Button variant="outline" size="sm" className="h-7 text-xs text-emerald-600" onClick={() => markConverted(v.id)}>
-                        <Trophy className="h-3 w-3 mr-1" /> Converted
+                      <Button variant="outline" size="sm" className="h-7 text-xs text-emerald-600" disabled={!!busy} onClick={() => markConverted(v.id)}>
+                        {busy === `convert-${v.id}` ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Trophy className="h-3 w-3 mr-1" />} Converted
                       </Button>
                     </div>
                   </TableCell>

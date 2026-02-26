@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -9,12 +11,13 @@ import { ResponseActions } from "@/components/ResponseActions";
 import {
   Copy, ExternalLink, CheckCircle2, SkipForward, StopCircle, Send,
   Pause, Play, Trash2, ChevronDown, ChevronRight, Instagram, Phone,
-  Mail, Clock, Zap, Undo2, Link2, Check,
+  Mail, Clock, Zap, Undo2, Link2, Check, Loader2, Pencil, Save, X, Globe,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   CATEGORIES,
-  FOLLOWUP_INSTA, FOLLOWUP_WA, FOLLOWUP_EMAIL_SUBJECT, FOLLOWUP_EMAIL_BODY,
+  applyTemplatePlaceholders,
+  stableVendorHash,
 } from "@/lib/vendor-utils";
 import { buildDailyPlan, type DailyPlan, type DailyTask } from "@/lib/daily-plan-engine";
 
@@ -86,24 +89,6 @@ function SequenceStepper({ task, vendor }: { task: DailyTask; vendor: any }) {
   );
 }
 
-function getVendorMessage(vendor: any, channel: Channel, isFollowUp: boolean): string {
-  const catLabel = CATEGORIES.find(c => c.key === vendor.category)?.label.toLowerCase() ?? vendor.category;
-  if (isFollowUp) {
-    if (channel === "instagram") return FOLLOWUP_INSTA(vendor.full_name, catLabel, vendor.claim_link);
-    if (channel === "whatsapp") return FOLLOWUP_WA(vendor.full_name, catLabel, vendor.claim_link);
-    if (channel === "email") return FOLLOWUP_EMAIL_BODY(vendor.full_name, catLabel, vendor.city, vendor.claim_link);
-  }
-  if (channel === "instagram") return vendor.insta_message || "";
-  if (channel === "whatsapp") return vendor.whatsapp_message || "";
-  if (channel === "email") return vendor.email_body || "";
-  return "";
-}
-
-function getVendorSubject(vendor: any, isFollowUp: boolean): string {
-  if (isFollowUp) return FOLLOWUP_EMAIL_SUBJECT(vendor.full_name);
-  return vendor.email_subject || "";
-}
-
 function getActionLink(vendor: any, channel: Channel, message: string, subject: string): string {
   if (channel === "instagram") return vendor.profile_url || "";
   if (channel === "whatsapp") return `https://wa.me/91${vendor.phone}?text=${encodeURIComponent(message)}`;
@@ -121,6 +106,7 @@ export default function OutreachPage() {
   const [sequences, setSequences] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [settings, setSettings] = useState<Record<string, string>>({});
+  const [messageTemplates, setMessageTemplates] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [activeTab, setActiveTab] = useState<"queue" | "done">("queue");
@@ -137,19 +123,24 @@ export default function OutreachPage() {
   const [summary, setSummary] = useState<{ sent: number; skipped: number; remaining: number } | null>(null);
   const [pausedSession, setPausedSession] = useState<PausedSession | null>(null);
   const sessionStartRef = useRef<number>(Date.now());
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const [editingVendorId, setEditingVendorId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<Record<string, string>>({});
 
   // ─── Data Fetching ───────────────────────────────────────────────────────
 
   const fetchData = async () => {
-    const [{ data: v }, { data: seq }, { data: l }, { data: s }] = await Promise.all([
+    const [{ data: v }, { data: seq }, { data: l }, { data: s }, { data: mt }] = await Promise.all([
       supabase.from("vendors").select("*"),
       supabase.from("vendor_sequences").select("*"),
       supabase.from("outreach_log").select("*"),
       supabase.from("settings").select("*"),
+      supabase.from("message_templates").select("*").eq("is_active", true),
     ]);
     setVendors(v ?? []);
     setSequences(seq ?? []);
     setLogs(l ?? []);
+    setMessageTemplates(mt ?? []);
     const map: Record<string, string> = {};
     for (const row of s ?? []) map[row.key] = row.value;
     setSettings(map);
@@ -198,6 +189,43 @@ export default function OutreachPage() {
     return tasks;
   }, [plan, channelFilter, typeFilter]);
 
+  const templateMap = useMemo(() => {
+    const map: Record<string, any[]> = {};
+    for (const t of messageTemplates) {
+      const groupKey = t.type.startsWith("initial_") ? "initial" : t.type;
+      const key = `${t.channel}:${groupKey}`;
+      if (!map[key]) map[key] = [];
+      map[key].push(t);
+    }
+    for (const key of Object.keys(map)) {
+      map[key].sort((a: any, b: any) => a.type.localeCompare(b.type));
+    }
+    return map;
+  }, [messageTemplates]);
+
+  const getVendorMessage = useCallback((vendor: any, channel: Channel, isFollowUp: boolean): string => {
+    const typeKey = isFollowUp ? "followup" : "initial";
+    const templates = templateMap[`${channel}:${typeKey}`];
+    if (templates?.length) {
+      const idx = isFollowUp ? 0 : stableVendorHash(vendor.id) % templates.length;
+      return applyTemplatePlaceholders(templates[idx].body, vendor);
+    }
+    if (channel === "instagram") return vendor.insta_message || "";
+    if (channel === "whatsapp") return vendor.whatsapp_message || "";
+    if (channel === "email") return vendor.email_body || "";
+    return "";
+  }, [templateMap]);
+
+  const getVendorSubject = useCallback((vendor: any, isFollowUp: boolean): string => {
+    const typeKey = isFollowUp ? "followup" : "initial";
+    const templates = templateMap[`email:${typeKey}`];
+    if (templates?.length) {
+      const idx = isFollowUp ? 0 : stableVendorHash(vendor.id) % templates.length;
+      return templates[idx].subject ? applyTemplatePlaceholders(templates[idx].subject, vendor) : "";
+    }
+    return vendor.email_subject || "";
+  }, [templateMap]);
+
   const doneTodayList = useMemo(() => {
     const today = new Date().toDateString();
     return logs
@@ -214,85 +242,172 @@ export default function OutreachPage() {
   }, [toast]);
 
   const markSent = async (task: DailyTask) => {
-    const vendor = vendorMap.get(task.vendorId);
-    if (!vendor) return;
-    const statusField = task.channel === "instagram" ? "insta_status" : task.channel === "whatsapp" ? "whatsapp_status" : "email_status";
-    const contactedField = task.channel === "instagram" ? "insta_contacted_at" : task.channel === "whatsapp" ? "whatsapp_contacted_at" : "email_contacted_at";
-    const newStatus = task.type === "followup" ? "followed_up" : "sent";
+    if (actionInProgress) return;
+    setActionInProgress(`sent-${task.vendorId}`);
+    try {
+      const vendor = vendorMap.get(task.vendorId);
+      if (!vendor) return;
+      const statusField = task.channel === "instagram" ? "insta_status" : task.channel === "whatsapp" ? "whatsapp_status" : "email_status";
+      const contactedField = task.channel === "instagram" ? "insta_contacted_at" : task.channel === "whatsapp" ? "whatsapp_contacted_at" : "email_contacted_at";
+      const newStatus = task.type === "followup" ? "followed_up" : "sent";
 
-    await supabase.from("vendors").update({
-      [statusField]: newStatus,
-      [contactedField]: new Date().toISOString(),
-      overall_status: (!vendor.overall_status || vendor.overall_status === "pending") ? "in_progress" : vendor.overall_status,
-    }).eq("id", vendor.id);
+      await supabase.from("vendors").update({
+        [statusField]: newStatus,
+        [contactedField]: new Date().toISOString(),
+        overall_status: (!vendor.overall_status || vendor.overall_status === "pending") ? "in_progress" : vendor.overall_status,
+      }).eq("id", vendor.id);
 
-    await supabase.from("outreach_log").insert({
-      vendor_id: vendor.id, channel: task.channel, action: newStatus,
-      message_sent: getVendorMessage(vendor, task.channel, task.type === "followup"),
-    });
+      await supabase.from("outreach_log").insert({
+        vendor_id: vendor.id, channel: task.channel, action: newStatus,
+        message_sent: getVendorMessage(vendor, task.channel, task.type === "followup"),
+      });
 
-    const seq = sequences.find(s => s.vendor_id === vendor.id && s.is_active);
-    if (seq) {
-      await supabase.from("vendor_sequences").update({
-        current_step: seq.current_step + 1,
-      }).eq("id", seq.id);
+      const seq = sequences.find(s => s.vendor_id === vendor.id && s.is_active);
+      if (seq) {
+        await supabase.from("vendor_sequences").update({
+          current_step: seq.current_step + 1,
+        }).eq("id", seq.id);
+      }
+
+      toast({ title: `Marked as ${newStatus}`, duration: 1200 });
+      setExpandedId(null);
+      await fetchData();
+    } finally {
+      setActionInProgress(null);
     }
-
-    toast({ title: `Marked as ${newStatus}`, duration: 1200 });
-    setExpandedId(null);
-    await fetchData();
   };
 
   const markSkipped = async (task: DailyTask) => {
-    const vendor = vendorMap.get(task.vendorId);
-    if (!vendor) return;
-    const statusField = task.channel === "instagram" ? "insta_status" : task.channel === "whatsapp" ? "whatsapp_status" : "email_status";
-    await supabase.from("vendors").update({ [statusField]: "skipped" }).eq("id", vendor.id);
-    await supabase.from("outreach_log").insert({ vendor_id: vendor.id, channel: task.channel, action: "skipped" });
+    if (actionInProgress) return;
+    setActionInProgress(`skip-${task.vendorId}`);
+    try {
+      const vendor = vendorMap.get(task.vendorId);
+      if (!vendor) return;
+      const statusField = task.channel === "instagram" ? "insta_status" : task.channel === "whatsapp" ? "whatsapp_status" : "email_status";
+      await supabase.from("vendors").update({ [statusField]: "skipped" }).eq("id", vendor.id);
+      await supabase.from("outreach_log").insert({ vendor_id: vendor.id, channel: task.channel, action: "skipped" });
 
-    const seq = sequences.find(s => s.vendor_id === vendor.id && s.is_active);
-    if (seq) {
-      await supabase.from("vendor_sequences").update({
-        current_step: seq.current_step + 1,
-      }).eq("id", seq.id);
+      const seq = sequences.find(s => s.vendor_id === vendor.id && s.is_active);
+      if (seq) {
+        await supabase.from("vendor_sequences").update({
+          current_step: seq.current_step + 1,
+        }).eq("id", seq.id);
+      }
+
+      toast({ title: "Skipped", duration: 1200 });
+      setExpandedId(null);
+      await fetchData();
+    } finally {
+      setActionInProgress(null);
     }
-
-    toast({ title: "Skipped", duration: 1200 });
-    setExpandedId(null);
-    await fetchData();
   };
 
   const revertSent = async (logEntry: any) => {
-    const vendor = vendorMap.get(logEntry.vendor_id);
-    if (!vendor) return;
-    const ch = logEntry.channel as Channel;
-    const statusField = ch === "instagram" ? "insta_status" : ch === "whatsapp" ? "whatsapp_status" : "email_status";
-    const contactedField = ch === "instagram" ? "insta_contacted_at" : ch === "whatsapp" ? "whatsapp_contacted_at" : "email_contacted_at";
+    if (actionInProgress) return;
+    setActionInProgress(`revert-${logEntry.id}`);
+    try {
+      const vendor = vendorMap.get(logEntry.vendor_id);
+      if (!vendor) return;
+      const ch = logEntry.channel as Channel;
+      const statusField = ch === "instagram" ? "insta_status" : ch === "whatsapp" ? "whatsapp_status" : "email_status";
+      const contactedField = ch === "instagram" ? "insta_contacted_at" : ch === "whatsapp" ? "whatsapp_contacted_at" : "email_contacted_at";
 
-    const revertTo = logEntry.action === "followed_up" ? "sent" : "pending";
-    const updates: Record<string, any> = { [statusField]: revertTo };
-    if (revertTo === "pending") updates[contactedField] = null;
+      const revertTo = logEntry.action === "followed_up" ? "sent" : "pending";
+      const updates: Record<string, any> = { [statusField]: revertTo };
+      if (revertTo === "pending") updates[contactedField] = null;
 
-    const EXCLUDED_STATUSES = ["interested", "not_interested", "declined", "converted", "maybe_later", "invalid"];
-    if (EXCLUDED_STATUSES.includes(vendor.overall_status)) {
-      updates.overall_status = "in_progress";
-      updates.responded_at = null;
-      updates.responded_channel = null;
+      const EXCLUDED_STATUSES = ["interested", "not_interested", "declined", "converted", "maybe_later", "invalid"];
+      if (EXCLUDED_STATUSES.includes(vendor.overall_status)) {
+        updates.overall_status = "in_progress";
+        updates.responded_at = null;
+        updates.responded_channel = null;
+      }
+
+      await supabase.from("vendors").update(updates).eq("id", vendor.id);
+      await supabase.from("outreach_log").delete().eq("id", logEntry.id);
+
+      const seq = sequences.find(s => s.vendor_id === vendor.id && s.is_active);
+      if (seq && seq.current_step > 0) {
+        await supabase.from("vendor_sequences").update({
+          current_step: seq.current_step - 1,
+        }).eq("id", seq.id);
+      }
+
+      toast({ title: `Reverted to ${revertTo}`, duration: 1500 });
+      setExpandedId(null);
+      await fetchData();
+    } finally {
+      setActionInProgress(null);
     }
+  };
 
-    await supabase.from("vendors").update(updates).eq("id", vendor.id);
-    await supabase.from("outreach_log").delete().eq("id", logEntry.id);
+  // ─── Inline Vendor Edit ──────────────────────────────────────────────────
 
-    const seq = sequences.find(s => s.vendor_id === vendor.id && s.is_active);
-    if (seq && seq.current_step > 0) {
-      await supabase.from("vendor_sequences").update({
-        current_step: seq.current_step - 1,
-      }).eq("id", seq.id);
+  const startEditing = (vendor: any) => {
+    setEditingVendorId(vendor.id);
+    setEditForm({
+      full_name: vendor.full_name || "",
+      username: vendor.username || "",
+      phone: vendor.phone || "",
+      email: vendor.email || "",
+      website: vendor.website || "",
+      claim_link: vendor.claim_link || "",
+      category: vendor.category || "uncategorized",
+      city: vendor.city || "",
+    });
+  };
+
+  const cancelEditing = () => {
+    setEditingVendorId(null);
+    setEditForm({});
+  };
+
+  const saveVendorEdit = async (vendorId: string) => {
+    if (actionInProgress) return;
+    setActionInProgress(`edit-${vendorId}`);
+    try {
+      const username = editForm.username?.trim() || null;
+      const phone = editForm.phone?.trim() || null;
+      const email = editForm.email?.trim() || null;
+      const fullName = editForm.full_name?.trim() || "";
+
+      const updates: Record<string, any> = {
+        full_name: fullName,
+        username,
+        phone,
+        email,
+        website: editForm.website?.trim() || null,
+        claim_link: editForm.claim_link?.trim() || "",
+        category: editForm.category || "uncategorized",
+        city: editForm.city?.trim() || "",
+        has_instagram: !!username,
+        has_phone: !!phone,
+        has_email: !!email,
+        profile_url: username ? `https://www.instagram.com/${username.replace(/^@/, "")}/` : "",
+      };
+
+      const { error } = await supabase.from("vendors").update(updates).eq("id", vendorId);
+      if (error) {
+        toast({ title: "Update failed", description: error.message, variant: "destructive", duration: 4000 });
+        return;
+      }
+      toast({ title: "Vendor updated", duration: 1500 });
+      setEditingVendorId(null);
+      setEditForm({});
+      await fetchData();
+
+      // Refresh session vendor data if editing during a focused session
+      if (sessionActive) {
+        const { data: freshVendor } = await supabase.from("vendors").select("*").eq("id", vendorId).single();
+        if (freshVendor) {
+          setSessionVendors(prev => prev.map(sv => sv.vendor.id === vendorId ? { ...sv, vendor: freshVendor } : sv));
+        }
+      }
+
+      window.dispatchEvent(new Event("vendors-updated"));
+    } finally {
+      setActionInProgress(null);
     }
-
-    toast({ title: `Reverted to ${revertTo}`, duration: 1500 });
-    setExpandedId(null);
-    await fetchData();
   };
 
   // ─── Focused Session ─────────────────────────────────────────────────────
@@ -342,7 +457,7 @@ export default function OutreachPage() {
   };
 
   const handleSessionSent = async () => {
-    if (!currentSession) return;
+    if (!currentSession || actionInProgress) return;
     await markSent(currentSession.task);
     setSentCount(c => c + 1); setStreak(s => s + 1);
     if (currentIndex + 1 >= sessionVendors.length) endSession();
@@ -350,7 +465,7 @@ export default function OutreachPage() {
   };
 
   const handleSessionSkip = async () => {
-    if (!currentSession) return;
+    if (!currentSession || actionInProgress) return;
     await markSkipped(currentSession.task);
     setSkippedCount(c => c + 1); setStreak(0);
     if (currentIndex + 1 >= sessionVendors.length) endSession();
@@ -363,6 +478,7 @@ export default function OutreachPage() {
     const msg = getVendorMessage(vendor, task.channel, task.type === "followup");
     const subj = task.channel === "email" ? getVendorSubject(vendor, task.type === "followup") : "";
     const link = getActionLink(vendor, task.channel, msg, subj);
+    copyToClipboard(msg);
     if (link) window.open(link, "_blank", "noopener,noreferrer");
   };
 
@@ -435,11 +551,80 @@ export default function OutreachPage() {
 
         <Card className="border-2">
           <CardContent className="pt-6 space-y-5">
-            <div>
-              <p className="text-2xl font-bold">{vendor.full_name}</p>
-              <p className="text-sm text-muted-foreground mt-1">{CATEGORIES.find(c => c.key === vendor.category)?.label} · {vendor.city}</p>
-              <p className="text-sm font-mono text-muted-foreground mt-0.5">{task.identifier}</p>
-            </div>
+
+            {/* Vendor Header + Edit Toggle */}
+            {editingVendorId === vendor.id ? (
+              <div className="rounded-lg border p-3 space-y-2.5 bg-amber-50/30 border-amber-200">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-amber-700">Edit Vendor Details</p>
+                  <div className="flex gap-1">
+                    <Button size="sm" variant="outline" className="h-7 text-xs border-amber-200" disabled={!!actionInProgress} onClick={cancelEditing}>
+                      <X className="h-3 w-3 mr-1" /> Cancel
+                    </Button>
+                    <Button size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white" disabled={!!actionInProgress} onClick={() => saveVendorEdit(vendor.id)}>
+                      {actionInProgress === `edit-${vendor.id}` ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Save className="h-3 w-3 mr-1" />} Save
+                    </Button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] font-medium text-muted-foreground">Business Name</label>
+                    <Input className="h-8 text-xs mt-0.5" value={editForm.full_name || ""} onChange={e => setEditForm(f => ({ ...f, full_name: e.target.value }))} placeholder="Full business name" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-medium text-muted-foreground">Category</label>
+                    <Select value={editForm.category || "uncategorized"} onValueChange={v => setEditForm(f => ({ ...f, category: v }))}>
+                      <SelectTrigger className="h-8 text-xs mt-0.5"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {CATEGORIES.map(c => <SelectItem key={c.key} value={c.key}>{c.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-medium text-muted-foreground flex items-center gap-1"><Instagram className="h-3 w-3 text-pink-500" /> Instagram</label>
+                    <Input className="h-8 text-xs mt-0.5 font-mono" value={editForm.username || ""} onChange={e => setEditForm(f => ({ ...f, username: e.target.value.replace(/^@/, "") }))} placeholder="username" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-medium text-muted-foreground flex items-center gap-1"><Phone className="h-3 w-3 text-green-500" /> Phone</label>
+                    <Input className="h-8 text-xs mt-0.5 font-mono" value={editForm.phone || ""} onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))} placeholder="Phone number" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-medium text-muted-foreground flex items-center gap-1"><Mail className="h-3 w-3 text-blue-500" /> Email</label>
+                    <Input className="h-8 text-xs mt-0.5 font-mono" value={editForm.email || ""} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} placeholder="Email address" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-medium text-muted-foreground flex items-center gap-1"><Globe className="h-3 w-3 text-gray-500" /> Website</label>
+                    <Input className="h-8 text-xs mt-0.5 font-mono" value={editForm.website || ""} onChange={e => setEditForm(f => ({ ...f, website: e.target.value }))} placeholder="Website URL" />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-[10px] font-medium text-muted-foreground flex items-center gap-1"><Link2 className="h-3 w-3 text-emerald-600" /> Claim Link</label>
+                    <Input className="h-8 text-xs mt-0.5 font-mono" value={editForm.claim_link || ""} onChange={e => setEditForm(f => ({ ...f, claim_link: e.target.value }))} placeholder="Claim link URL" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-medium text-muted-foreground">City</label>
+                    <Input className="h-8 text-xs mt-0.5" value={editForm.city || ""} onChange={e => setEditForm(f => ({ ...f, city: e.target.value }))} placeholder="City" />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-2xl font-bold">{vendor.full_name}</p>
+                    <p className="text-sm text-muted-foreground mt-1">{CATEGORIES.find(c => c.key === vendor.category)?.label} · {vendor.city}</p>
+                    <p className="text-sm font-mono text-muted-foreground mt-0.5">{task.identifier}</p>
+                  </div>
+                  <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground hover:text-foreground shrink-0" onClick={() => startEditing(vendor)}>
+                    <Pencil className="h-3 w-3 mr-1" /> Edit
+                  </Button>
+                </div>
+                {vendor.website && (
+                  <a href={vendor.website.startsWith("http") ? vendor.website : `https://${vendor.website}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline mt-1.5">
+                    <Globe className="h-3 w-3 text-gray-500" /> {vendor.website.replace(/^https?:\/\//, "")}
+                  </a>
+                )}
+              </div>
+            )}
 
             {task.sequenceLabel && (
               <div className="flex items-center gap-3 rounded-lg bg-muted/50 px-3 py-2">
@@ -453,9 +638,9 @@ export default function OutreachPage() {
 
             <div className="rounded-lg border p-3 bg-muted/30">
               <div className="flex flex-wrap gap-3 text-xs">
-                {vendor.has_instagram && <div className="flex items-center gap-1.5"><Instagram className="h-3 w-3 text-pink-500" /><StatusBadge status={vendor.insta_status} />{task.channel === "instagram" && <span className="text-xs font-medium text-primary">(now)</span>}</div>}
-                {vendor.has_phone && <div className="flex items-center gap-1.5"><Phone className="h-3 w-3 text-green-500" /><StatusBadge status={vendor.whatsapp_status} />{task.channel === "whatsapp" && <span className="text-xs font-medium text-primary">(now)</span>}</div>}
-                {vendor.has_email && <div className="flex items-center gap-1.5"><Mail className="h-3 w-3 text-blue-500" /><StatusBadge status={vendor.email_status} />{task.channel === "email" && <span className="text-xs font-medium text-primary">(now)</span>}</div>}
+                {vendor.has_instagram && <div className="flex items-center gap-1.5"><Instagram className="h-3 w-3 text-pink-500" /><StatusBadge status={vendor.insta_status} /><span className="font-mono text-muted-foreground">@{vendor.username}</span>{task.channel === "instagram" && <span className="text-xs font-medium text-primary">(now)</span>}</div>}
+                {vendor.has_phone && <div className="flex items-center gap-1.5"><Phone className="h-3 w-3 text-green-500" /><StatusBadge status={vendor.whatsapp_status} /><span className="font-mono text-muted-foreground">{vendor.phone}</span>{task.channel === "whatsapp" && <span className="text-xs font-medium text-primary">(now)</span>}</div>}
+                {vendor.has_email && <div className="flex items-center gap-1.5"><Mail className="h-3 w-3 text-blue-500" /><StatusBadge status={vendor.email_status} /><span className="font-mono text-muted-foreground truncate max-w-[180px]">{vendor.email}</span>{task.channel === "email" && <span className="text-xs font-medium text-primary">(now)</span>}</div>}
               </div>
             </div>
 
@@ -491,10 +676,14 @@ export default function OutreachPage() {
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-              <Button onClick={handleSessionSent} className="h-11 sm:h-12 bg-emerald-600 hover:bg-emerald-700 text-white"><CheckCircle2 className="h-4 w-4 mr-1.5" /> Sent</Button>
-              <Button onClick={handleSessionSkip} variant="secondary" className="h-11 sm:h-12"><SkipForward className="h-4 w-4 mr-1.5" /> Skip</Button>
-              <Button onClick={pauseSession} variant="outline" className="h-11 sm:h-12"><Pause className="h-4 w-4 mr-1.5" /> Pause</Button>
-              <Button onClick={endSession} variant="destructive" className="h-11 sm:h-12"><StopCircle className="h-4 w-4 mr-1.5" /> Stop</Button>
+              <Button onClick={handleSessionSent} disabled={!!actionInProgress} className="h-11 sm:h-12 bg-emerald-600 hover:bg-emerald-700 text-white">
+                {actionInProgress?.startsWith("sent-") ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-1.5" />} Sent
+              </Button>
+              <Button onClick={handleSessionSkip} disabled={!!actionInProgress} variant="secondary" className="h-11 sm:h-12">
+                {actionInProgress?.startsWith("skip-") ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <SkipForward className="h-4 w-4 mr-1.5" />} Skip
+              </Button>
+              <Button onClick={pauseSession} disabled={!!actionInProgress} variant="outline" className="h-11 sm:h-12"><Pause className="h-4 w-4 mr-1.5" /> Pause</Button>
+              <Button onClick={endSession} disabled={!!actionInProgress} variant="destructive" className="h-11 sm:h-12"><StopCircle className="h-4 w-4 mr-1.5" /> Stop</Button>
             </div>
           </CardContent>
         </Card>
@@ -666,10 +855,14 @@ export default function OutreachPage() {
                         </div>
                         <div className="text-xs font-mono text-muted-foreground truncate">{task.identifier}</div>
                         <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Copy" onClick={() => copyToClipboard(message)}><Copy className="h-3.5 w-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Open" onClick={() => link && window.open(link, "_blank", "noopener,noreferrer")}><ExternalLink className="h-3.5 w-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50" title="Sent" onClick={() => markSent(task)}><CheckCircle2 className="h-4 w-4" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Skip" onClick={() => markSkipped(task)}><SkipForward className="h-3.5 w-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Copy" disabled={!!actionInProgress} onClick={() => copyToClipboard(message)}><Copy className="h-3.5 w-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Open" disabled={!!actionInProgress} onClick={() => { copyToClipboard(message); if (link) window.open(link, "_blank", "noopener,noreferrer"); }}><ExternalLink className="h-3.5 w-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50" title="Sent" disabled={!!actionInProgress} onClick={() => markSent(task)}>
+                            {actionInProgress === `sent-${task.vendorId}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Skip" disabled={!!actionInProgress} onClick={() => markSkipped(task)}>
+                            {actionInProgress === `skip-${task.vendorId}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <SkipForward className="h-3.5 w-3.5" />}
+                          </Button>
                         </div>
                       </div>
                       {/* Mobile card */}
@@ -701,10 +894,14 @@ export default function OutreachPage() {
                             <span className="text-[11px] font-mono text-muted-foreground truncate max-w-[120px]">{task.identifier}</span>
                           </div>
                           <div className="flex gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Copy" onClick={() => copyToClipboard(message)}><Copy className="h-3 w-3" /></Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Open" onClick={() => link && window.open(link, "_blank", "noopener,noreferrer")}><ExternalLink className="h-3 w-3" /></Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600" title="Sent" onClick={() => markSent(task)}><CheckCircle2 className="h-3.5 w-3.5" /></Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Skip" onClick={() => markSkipped(task)}><SkipForward className="h-3 w-3" /></Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Copy" disabled={!!actionInProgress} onClick={() => copyToClipboard(message)}><Copy className="h-3 w-3" /></Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Open" disabled={!!actionInProgress} onClick={() => { copyToClipboard(message); if (link) window.open(link, "_blank", "noopener,noreferrer"); }}><ExternalLink className="h-3 w-3" /></Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600" title="Sent" disabled={!!actionInProgress} onClick={() => markSent(task)}>
+                              {actionInProgress === `sent-${task.vendorId}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Skip" disabled={!!actionInProgress} onClick={() => markSkipped(task)}>
+                              {actionInProgress === `skip-${task.vendorId}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <SkipForward className="h-3 w-3" />}
+                            </Button>
                           </div>
                         </div>
                       </div>
@@ -714,27 +911,95 @@ export default function OutreachPage() {
                     {isExpanded && (
                       <div className="px-4 pb-4 border-t animate-fade-in">
                         <div className="max-w-2xl mx-auto space-y-3 pt-3">
-                          {/* Channel statuses */}
-                          <div className="flex flex-wrap gap-3">
-                            {vendor.has_instagram && (
-                              <div className="flex items-center gap-1.5 text-xs rounded-lg border px-2.5 py-1.5 bg-background">
-                                <Instagram className="h-3 w-3 text-pink-500" /> <StatusBadge status={vendor.insta_status} />
-                                {vendor.insta_contacted_at && <span className="text-muted-foreground text-[10px]">{new Date(vendor.insta_contacted_at).toLocaleDateString()}</span>}
+
+                          {/* Vendor Details — editable */}
+                          {editingVendorId === vendor.id ? (
+                            <div className="rounded-lg border p-3 space-y-2.5 bg-amber-50/30 border-amber-200">
+                              <div className="flex items-center justify-between">
+                                <p className="text-xs font-semibold text-amber-700">Edit Vendor Details</p>
+                                <div className="flex gap-1">
+                                  <Button size="sm" variant="outline" className="h-7 text-xs border-amber-200" disabled={!!actionInProgress} onClick={cancelEditing}>
+                                    <X className="h-3 w-3 mr-1" /> Cancel
+                                  </Button>
+                                  <Button size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white" disabled={!!actionInProgress} onClick={() => saveVendorEdit(vendor.id)}>
+                                    {actionInProgress === `edit-${vendor.id}` ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Save className="h-3 w-3 mr-1" />} Save
+                                  </Button>
+                                </div>
                               </div>
-                            )}
-                            {vendor.has_phone && (
-                              <div className="flex items-center gap-1.5 text-xs rounded-lg border px-2.5 py-1.5 bg-background">
-                                <Phone className="h-3 w-3 text-green-500" /> <StatusBadge status={vendor.whatsapp_status} />
-                                {vendor.whatsapp_contacted_at && <span className="text-muted-foreground text-[10px]">{new Date(vendor.whatsapp_contacted_at).toLocaleDateString()}</span>}
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <div>
+                                  <label className="text-[10px] font-medium text-muted-foreground">Business Name</label>
+                                  <Input className="h-8 text-xs mt-0.5" value={editForm.full_name || ""} onChange={e => setEditForm(f => ({ ...f, full_name: e.target.value }))} placeholder="Full business name" />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] font-medium text-muted-foreground">Category</label>
+                                  <Select value={editForm.category || "uncategorized"} onValueChange={v => setEditForm(f => ({ ...f, category: v }))}>
+                                    <SelectTrigger className="h-8 text-xs mt-0.5"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      {CATEGORIES.map(c => <SelectItem key={c.key} value={c.key}>{c.label}</SelectItem>)}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div>
+                                  <label className="text-[10px] font-medium text-muted-foreground flex items-center gap-1"><Instagram className="h-3 w-3 text-pink-500" /> Instagram</label>
+                                  <Input className="h-8 text-xs mt-0.5 font-mono" value={editForm.username || ""} onChange={e => setEditForm(f => ({ ...f, username: e.target.value.replace(/^@/, "") }))} placeholder="username" />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] font-medium text-muted-foreground flex items-center gap-1"><Phone className="h-3 w-3 text-green-500" /> Phone</label>
+                                  <Input className="h-8 text-xs mt-0.5 font-mono" value={editForm.phone || ""} onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))} placeholder="Phone number" />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] font-medium text-muted-foreground flex items-center gap-1"><Mail className="h-3 w-3 text-blue-500" /> Email</label>
+                                  <Input className="h-8 text-xs mt-0.5 font-mono" value={editForm.email || ""} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} placeholder="Email address" />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] font-medium text-muted-foreground flex items-center gap-1"><Globe className="h-3 w-3 text-gray-500" /> Website</label>
+                                  <Input className="h-8 text-xs mt-0.5 font-mono" value={editForm.website || ""} onChange={e => setEditForm(f => ({ ...f, website: e.target.value }))} placeholder="Website URL" />
+                                </div>
+                                <div className="sm:col-span-2">
+                                  <label className="text-[10px] font-medium text-muted-foreground flex items-center gap-1"><Link2 className="h-3 w-3 text-emerald-600" /> Claim Link</label>
+                                  <Input className="h-8 text-xs mt-0.5 font-mono" value={editForm.claim_link || ""} onChange={e => setEditForm(f => ({ ...f, claim_link: e.target.value }))} placeholder="Claim link URL" />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] font-medium text-muted-foreground">City</label>
+                                  <Input className="h-8 text-xs mt-0.5" value={editForm.city || ""} onChange={e => setEditForm(f => ({ ...f, city: e.target.value }))} placeholder="City" />
+                                </div>
                               </div>
-                            )}
-                            {vendor.has_email && (
-                              <div className="flex items-center gap-1.5 text-xs rounded-lg border px-2.5 py-1.5 bg-background">
-                                <Mail className="h-3 w-3 text-blue-500" /> <StatusBadge status={vendor.email_status} />
-                                {vendor.email_contacted_at && <span className="text-muted-foreground text-[10px]">{new Date(vendor.email_contacted_at).toLocaleDateString()}</span>}
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <div className="flex flex-wrap gap-2 text-xs">
+                                  {vendor.has_instagram && (
+                                    <div className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 bg-background">
+                                      <Instagram className="h-3 w-3 text-pink-500" /> <StatusBadge status={vendor.insta_status} />
+                                      <span className="font-mono text-muted-foreground">@{vendor.username}</span>
+                                    </div>
+                                  )}
+                                  {vendor.has_phone && (
+                                    <div className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 bg-background">
+                                      <Phone className="h-3 w-3 text-green-500" /> <StatusBadge status={vendor.whatsapp_status} />
+                                      <span className="font-mono text-muted-foreground">{vendor.phone}</span>
+                                    </div>
+                                  )}
+                                  {vendor.has_email && (
+                                    <div className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 bg-background">
+                                      <Mail className="h-3 w-3 text-blue-500" /> <StatusBadge status={vendor.email_status} />
+                                      <span className="font-mono text-muted-foreground truncate max-w-[150px]">{vendor.email}</span>
+                                    </div>
+                                  )}
+                                  {vendor.website && (
+                                    <a href={vendor.website.startsWith("http") ? vendor.website : `https://${vendor.website}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 bg-background text-primary hover:underline">
+                                      <Globe className="h-3 w-3 text-gray-500" /> <span className="truncate max-w-[120px]">{vendor.website.replace(/^https?:\/\//, "")}</span>
+                                    </a>
+                                  )}
+                                </div>
+                                <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground hover:text-foreground shrink-0" onClick={() => startEditing(vendor)}>
+                                  <Pencil className="h-3 w-3 mr-1" /> Edit
+                                </Button>
                               </div>
-                            )}
-                          </div>
+                            </div>
+                          )}
 
                           {/* Claim Link */}
                           {vendor.claim_link && (
@@ -766,10 +1031,14 @@ export default function OutreachPage() {
                           <div className="flex flex-wrap gap-2">
                             {task.channel === "email" && <Button size="sm" variant="outline" onClick={() => copyToClipboard(subject)}><Copy className="h-3 w-3 mr-1.5" /> Copy Subject</Button>}
                             <Button size="sm" variant="outline" onClick={() => copyToClipboard(message)}><Copy className="h-3 w-3 mr-1.5" /> Copy Message</Button>
-                            <Button size="sm" variant="outline" onClick={() => link && window.open(link, "_blank", "noopener,noreferrer")}><ExternalLink className="h-3 w-3 mr-1.5" /> Open {CH_LABEL[task.channel]}</Button>
-                            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => markSent(task)}><CheckCircle2 className="h-3 w-3 mr-1.5" /> Mark Sent</Button>
-                            <Button size="sm" variant="secondary" onClick={() => markSkipped(task)}><SkipForward className="h-3 w-3 mr-1.5" /> Skip</Button>
-                            <Button size="sm" variant="ghost" className="text-gray-400 hover:text-red-500 hover:bg-red-50" onClick={async () => { await supabase.from("vendors").update({ overall_status: "invalid" }).eq("id", vendor.id); toast({ title: "Vendor removed", duration: 1500 }); setExpandedId(null); fetchData(); window.dispatchEvent(new Event("vendors-updated")); }} title="Not a valid vendor"><Trash2 className="h-3 w-3 mr-1.5" /> Remove</Button>
+                            <Button size="sm" variant="outline" onClick={() => { copyToClipboard(message); if (link) window.open(link, "_blank", "noopener,noreferrer"); }}><ExternalLink className="h-3 w-3 mr-1.5" /> Open {CH_LABEL[task.channel]}</Button>
+                            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" disabled={!!actionInProgress} onClick={() => markSent(task)}>
+                              {actionInProgress === `sent-${task.vendorId}` ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <CheckCircle2 className="h-3 w-3 mr-1.5" />} Mark Sent
+                            </Button>
+                            <Button size="sm" variant="secondary" disabled={!!actionInProgress} onClick={() => markSkipped(task)}>
+                              {actionInProgress === `skip-${task.vendorId}` ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <SkipForward className="h-3 w-3 mr-1.5" />} Skip
+                            </Button>
+                            <Button size="sm" variant="ghost" className="text-gray-400 hover:text-red-500 hover:bg-red-50" disabled={!!actionInProgress} onClick={async () => { if (actionInProgress) return; setActionInProgress(`remove-${vendor.id}`); try { await supabase.from("vendors").update({ overall_status: "invalid" }).eq("id", vendor.id); toast({ title: "Vendor removed", duration: 1500 }); setExpandedId(null); fetchData(); window.dispatchEvent(new Event("vendors-updated")); } finally { setActionInProgress(null); } }} title="Not a valid vendor"><Trash2 className="h-3 w-3 mr-1.5" /> Remove</Button>
                           </div>
 
                         </div>
@@ -814,7 +1083,9 @@ export default function OutreachPage() {
                       {["interested", "not_interested", "maybe_later", "declined"].includes(vendor.overall_status) ? <StatusBadge status={vendor.overall_status} /> : <span className="text-[10px] text-muted-foreground">Awaiting</span>}
                     </div>
                     <div onClick={e => e.stopPropagation()}>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-orange-500 hover:text-orange-600 hover:bg-orange-50" title="Revert" onClick={() => revertSent(log)}><Undo2 className="h-3.5 w-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-orange-500 hover:text-orange-600 hover:bg-orange-50" title="Revert" disabled={!!actionInProgress} onClick={() => revertSent(log)}>
+                        {actionInProgress === `revert-${log.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5" />}
+                      </Button>
                     </div>
                   </div>
                   {/* Mobile card */}
@@ -825,7 +1096,9 @@ export default function OutreachPage() {
                         <p className="text-[11px] text-muted-foreground">{CATEGORIES.find(c => c.key === vendor.category)?.label} · {vendor.city}</p>
                       </div>
                       <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-orange-500" title="Revert" onClick={() => revertSent(log)}><Undo2 className="h-3 w-3" /></Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-orange-500" title="Revert" disabled={!!actionInProgress} onClick={() => revertSent(log)}>
+                          {actionInProgress === `revert-${log.id}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <Undo2 className="h-3 w-3" />}
+                        </Button>
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -842,8 +1115,8 @@ export default function OutreachPage() {
                     <div className="max-w-2xl mx-auto space-y-3 pt-3">
                       {log.message_sent && <div className="rounded-lg border p-3 bg-muted/30 overflow-hidden"><p className="text-[10px] font-medium text-muted-foreground mb-1">Message sent</p><p className="text-xs leading-relaxed whitespace-pre-wrap break-all">{log.message_sent}</p></div>}
                       <div className="flex gap-2">
-                        <Button size="sm" variant="outline" className="text-orange-600 border-orange-200 hover:bg-orange-50" onClick={() => revertSent(log)}>
-                          <Undo2 className="h-3 w-3 mr-1.5" /> Revert to Queue
+                        <Button size="sm" variant="outline" className="text-orange-600 border-orange-200 hover:bg-orange-50" disabled={!!actionInProgress} onClick={() => revertSent(log)}>
+                          {actionInProgress === `revert-${log.id}` ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Undo2 className="h-3 w-3 mr-1.5" />} Revert to Queue
                         </Button>
                       </div>
                       <div className="border-t pt-2"><p className="text-[10px] font-medium text-muted-foreground mb-1.5">Update Response</p><ResponseActions vendorId={vendor.id} currentStatus={vendor.overall_status} channel={log.channel} onUpdate={() => { setExpandedId(null); fetchData(); }} /></div>
