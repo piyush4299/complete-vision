@@ -146,7 +146,7 @@ export default function AnalyticsPage() {
       <h1 className="text-2xl font-bold tracking-tight">📊 Analytics</h1>
 
       {/* Top Stats */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {topStats.map(s => (
           <Card key={s.label}>
             <CardContent className="pt-4 pb-3 px-4">
@@ -168,7 +168,7 @@ export default function AnalyticsPage() {
           <CardTitle className="text-base">Conversion Funnel</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-1">
             {funnel.map((step, i) => (
               <div key={step.label} className="flex items-center gap-1 flex-1">
                 <div
@@ -197,6 +197,7 @@ export default function AnalyticsPage() {
           <CardTitle className="text-base">Channel Performance</CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -225,6 +226,7 @@ export default function AnalyticsPage() {
               </TableRow>
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
 

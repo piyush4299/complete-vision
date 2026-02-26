@@ -163,9 +163,9 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className="text-2xl font-bold tracking-tight">⚙️ Settings</h1>
-        <Button onClick={saveAllSettings} disabled={saving}>
+        <Button onClick={saveAllSettings} disabled={saving} className="w-full sm:w-auto">
           <Save className="h-4 w-4 mr-1" /> {saving ? "Saving..." : "Save All Settings"}
         </Button>
       </div>
@@ -177,13 +177,14 @@ export default function SettingsPage() {
         return (
           <Card key={section.title}>
             <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <CardTitle className="text-base">{section.title}</CardTitle>
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => saveSectionSettings(section.title, sectionKeys)}
                   disabled={isSavingThis}
+                  className="w-full sm:w-auto shrink-0"
                 >
                   <Save className="h-3.5 w-3.5 mr-1" /> {isSavingThis ? "Saving..." : "Save"}
                 </Button>
@@ -191,11 +192,11 @@ export default function SettingsPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               {section.items.map((item: any) => (
-                <div key={item.key} className="flex items-center gap-3">
-                  <Label className="text-sm w-64 shrink-0">{item.label}</Label>
+                <div key={item.key} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                  <Label className="text-sm w-full sm:w-64 sm:shrink-0">{item.label}</Label>
                   {item.type === "select" ? (
                     <Select value={settings[item.key] || item.options[0]} onValueChange={v => updateSetting(item.key, v)}>
-                      <SelectTrigger className="w-64"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="w-full sm:w-64"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {(item.options as string[]).map((opt: string, i: number) => (
                           <SelectItem key={opt} value={opt}>{item.optionLabels?.[i] || opt}</SelectItem>
@@ -207,7 +208,7 @@ export default function SettingsPage() {
                       type={item.type === "date" ? "date" : item.type === "text" ? "text" : "number"}
                       value={settings[item.key] || ""}
                       onChange={e => updateSetting(item.key, e.target.value)}
-                      className="w-48"
+                      className="w-full sm:w-48"
                     />
                   )}
                 </div>
@@ -241,11 +242,11 @@ export default function SettingsPage() {
         <CardContent className="space-y-4">
           {templates.map(t => (
             <div key={t.id} className="rounded-lg border p-4 space-y-2">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <p className="text-sm font-medium">
                   {channelLabel(t.channel)} — {typeLabel(t.type)}
                 </p>
-                <Button size="sm" variant="outline" onClick={() => saveTemplate(t)}>
+                <Button size="sm" variant="outline" onClick={() => saveTemplate(t)} className="w-full sm:w-auto shrink-0">
                   <Save className="h-3.5 w-3.5 mr-1" /> Save
                 </Button>
               </div>

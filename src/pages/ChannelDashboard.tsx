@@ -122,10 +122,10 @@ export default function ChannelDashboard({ channel, title, icon, hasField, statu
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Vendors</CardTitle>
-          <div className="flex gap-3 mt-2">
-            <Input placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="w-60" />
+          <div className="flex flex-col sm:flex-row gap-3 mt-2">
+            <Input placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="w-full sm:w-60" />
             <Select value={filterCat} onValueChange={setFilterCat}>
-              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full sm:w-40"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Categories</SelectItem>
                 {CATEGORIES.map(c => <SelectItem key={c.key} value={c.key}>{c.label}</SelectItem>)}
@@ -133,7 +133,8 @@ export default function ChannelDashboard({ channel, title, icon, hasField, statu
             </Select>
           </div>
         </CardHeader>
-        <CardContent className="overflow-auto">
+        <CardContent>
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -180,12 +181,13 @@ export default function ChannelDashboard({ channel, title, icon, hasField, statu
               )}
             </TableBody>
           </Table>
+          </div>
           {filtered.length > PAGE_SIZE && (
-            <div className="flex items-center justify-between mt-4 px-2">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mt-4 px-2">
               <p className="text-sm text-muted-foreground">
                 Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
               </p>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 justify-center sm:justify-end">
                 <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(p => p - 1)}>
                   <ChevronLeft className="h-4 w-4 mr-1" /> Previous
                 </Button>

@@ -10,7 +10,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <header className="sticky top-0 z-10 flex h-14 items-center border-b bg-background/80 backdrop-blur-sm px-4">
             <SidebarTrigger />
           </header>
-          <div className="p-6">{children}</div>
+          <div className="p-3 sm:p-6">{children}</div>
         </main>
       </div>
     </SidebarProvider>

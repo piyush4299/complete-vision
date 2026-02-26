@@ -188,7 +188,7 @@ export default function TodayPage() {
     <div className="max-w-3xl mx-auto space-y-5 animate-fade-in pb-8">
 
       {/* ─── Header ────────────────────────────────────────────────────── */}
-      <div className="flex items-end justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">
             {getGreeting()}, {adminName}!
@@ -359,12 +359,12 @@ export default function TodayPage() {
       {plan.hotLeads.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
                 <Flame className="h-3.5 w-3.5 text-orange-500" />
                 Hot Leads
               </CardTitle>
-              <Button variant="link" size="sm" className="px-0 h-auto text-xs" onClick={() => navigate("/hot-leads")}>
+              <Button variant="link" size="sm" className="px-0 h-auto text-xs shrink-0" onClick={() => navigate("/hot-leads")}>
                 View all <ArrowRight className="h-3 w-3 ml-0.5" />
               </Button>
             </div>

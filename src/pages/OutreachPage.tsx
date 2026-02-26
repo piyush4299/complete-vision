@@ -484,17 +484,17 @@ export default function OutreachPage() {
 
             <div className="rounded-lg border p-4 bg-muted/50 overflow-hidden"><p className="text-sm leading-relaxed whitespace-pre-wrap break-all">{message}</p></div>
 
-            <div className="flex gap-3">
-              {task.channel === "email" && <Button variant="secondary" onClick={() => copyToClipboard(subject)} className="flex-1"><Copy className="h-4 w-4 mr-2" /> Subject</Button>}
-              <Button variant="secondary" onClick={() => copyToClipboard(message)} className="flex-1"><Copy className="h-4 w-4 mr-2" /> Message</Button>
-              <Button variant="secondary" onClick={handleSessionOpen} className="flex-1"><ExternalLink className="h-4 w-4 mr-2" /> Open {CH_LABEL[task.channel]}</Button>
+            <div className="flex flex-wrap gap-2 sm:gap-3">
+              {task.channel === "email" && <Button variant="secondary" size="sm" className="flex-1 sm:size-default" onClick={() => copyToClipboard(subject)}><Copy className="h-3.5 w-3.5 mr-1.5" /> Subject</Button>}
+              <Button variant="secondary" size="sm" className="flex-1 sm:size-default" onClick={() => copyToClipboard(message)}><Copy className="h-3.5 w-3.5 mr-1.5" /> Message</Button>
+              <Button variant="secondary" size="sm" className="flex-1 sm:size-default" onClick={handleSessionOpen}><ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Open</Button>
             </div>
 
-            <div className="flex gap-3">
-              <Button onClick={handleSessionSent} className="flex-1 h-12 bg-emerald-600 hover:bg-emerald-700 text-white"><CheckCircle2 className="h-4 w-4 mr-2" /> Sent</Button>
-              <Button onClick={handleSessionSkip} variant="secondary" className="flex-1 h-12"><SkipForward className="h-4 w-4 mr-2" /> Skip</Button>
-              <Button onClick={pauseSession} variant="outline" className="h-12"><Pause className="h-4 w-4 mr-2" /> Pause</Button>
-              <Button onClick={endSession} variant="destructive" className="h-12"><StopCircle className="h-4 w-4 mr-2" /> Stop</Button>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+              <Button onClick={handleSessionSent} className="h-11 sm:h-12 bg-emerald-600 hover:bg-emerald-700 text-white"><CheckCircle2 className="h-4 w-4 mr-1.5" /> Sent</Button>
+              <Button onClick={handleSessionSkip} variant="secondary" className="h-11 sm:h-12"><SkipForward className="h-4 w-4 mr-1.5" /> Skip</Button>
+              <Button onClick={pauseSession} variant="outline" className="h-11 sm:h-12"><Pause className="h-4 w-4 mr-1.5" /> Pause</Button>
+              <Button onClick={endSession} variant="destructive" className="h-11 sm:h-12"><StopCircle className="h-4 w-4 mr-1.5" /> Stop</Button>
             </div>
           </CardContent>
         </Card>
@@ -506,7 +506,7 @@ export default function OutreachPage() {
             <div className="flex items-center gap-4">{streak > 1 && <span>🔥 {streak}</span>}<span>ETA: {getETA()}</span></div>
           </div>
         </div>
-        <div className="rounded-lg border bg-muted/30 px-4 py-2 text-center text-xs text-muted-foreground">
+        <div className="hidden sm:block rounded-lg border bg-muted/30 px-4 py-2 text-center text-xs text-muted-foreground">
           <kbd className="px-1.5 py-0.5 rounded bg-muted border text-[10px] font-mono">S</kbd> Sent <kbd className="px-1.5 py-0.5 rounded bg-muted border text-[10px] font-mono ml-2">K</kbd> Skip <kbd className="px-1.5 py-0.5 rounded bg-muted border text-[10px] font-mono ml-2">O</kbd> Open <kbd className="px-1.5 py-0.5 rounded bg-muted border text-[10px] font-mono ml-2">C</kbd> Copy <kbd className="px-1.5 py-0.5 rounded bg-muted border text-[10px] font-mono ml-2">Esc</kbd> Stop
         </div>
       </div>
@@ -522,20 +522,20 @@ export default function OutreachPage() {
     <div className="max-w-5xl mx-auto space-y-5 animate-fade-in pb-8">
 
       {/* ─── Header ─────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Outreach</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Outreach</h1>
+          <p className="text-muted-foreground text-xs sm:text-sm mt-0.5">
             {plan.doneToday.total}/{totalTarget} done today · {queueTasks.length} in queue
           </p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 sm:gap-4">
           <div className="text-right">
-            <p className="text-2xl font-bold tabular-nums">{overallPct}%</p>
+            <p className="text-xl sm:text-2xl font-bold tabular-nums">{overallPct}%</p>
             <p className="text-[10px] text-muted-foreground">Progress</p>
           </div>
           {queueTasks.length > 0 && activeTab === "queue" && (
-            <Button onClick={startFocusedSession}><Zap className="h-4 w-4 mr-2" /> Focused Session</Button>
+            <Button size="sm" className="sm:size-default" onClick={startFocusedSession}><Zap className="h-4 w-4 mr-1 sm:mr-2" /> Focused Session</Button>
           )}
         </div>
       </div>
@@ -555,7 +555,7 @@ export default function OutreachPage() {
       )}
 
       {/* ─── Mini Progress ──────────────────────────────────────────────── */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
         {(["instagram", "whatsapp", "email"] as Channel[]).map(ch => {
           const p = plan.progress[ch];
           const pct = Math.min(p.pct, 100);
@@ -575,7 +575,7 @@ export default function OutreachPage() {
       </div>
 
       {/* ─── How It Works Guide ─────────────────────────────────────────── */}
-      <div className="rounded-xl border bg-gradient-to-r from-blue-50/50 to-transparent p-4">
+      <div className="hidden sm:block rounded-xl border bg-gradient-to-r from-blue-50/50 to-transparent p-4">
         <p className="text-xs font-semibold text-muted-foreground mb-1.5">HOW IT WORKS</p>
         <p className="text-xs text-muted-foreground leading-relaxed">
           Each vendor follows a <strong>drip sequence</strong> — channels are contacted one at a time with gaps between them.
@@ -598,15 +598,15 @@ export default function OutreachPage() {
       {activeTab === "queue" && (
         <div className="space-y-3">
           {/* Filters */}
-          <div className="flex flex-wrap gap-2">
+          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
             {(["all", "instagram", "whatsapp", "email"] as const).map(f => (
-              <button key={f} onClick={() => setChannelFilter(f)} className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${channelFilter === f ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
+              <button key={f} onClick={() => setChannelFilter(f)} className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${channelFilter === f ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
                 {f === "all" ? "All Channels" : CH_LABEL[f]}
               </button>
             ))}
-            <div className="w-px h-6 bg-border self-center mx-1" />
+            <div className="w-px h-6 bg-border self-center mx-1 shrink-0" />
             {(["all", "overdue", "followup", "initial"] as const).map(f => (
-              <button key={f} onClick={() => setTypeFilter(f)} className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${typeFilter === f ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
+              <button key={f} onClick={() => setTypeFilter(f)} className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${typeFilter === f ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
                 {f === "all" ? "All Types" : f === "overdue" ? "Overdue" : f === "followup" ? "Follow-ups" : "New Outreach"}
               </button>
             ))}
@@ -637,42 +637,76 @@ export default function OutreachPage() {
                 return (
                   <div key={task.vendorId} className={`rounded-xl border transition-all ${task.isOverdue ? "border-red-200 bg-red-50/30" : "hover:border-primary/20 hover:shadow-sm"} ${isExpanded ? "shadow-sm" : ""}`}>
                     {/* Row */}
-                    <div className="grid items-center px-4 py-3 cursor-pointer gap-3" style={{ gridTemplateColumns: "20px 1fr 100px 80px 140px 136px" }} onClick={() => setExpandedId(isExpanded ? null : task.vendorId)}>
-                      <div className="text-muted-foreground">
-                        {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                      </div>
-
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-semibold text-sm truncate">{task.vendorName}</p>
-                          <SequenceStepper task={task} vendor={vendor} />
+                    <div className="px-3 sm:px-4 py-3 cursor-pointer" onClick={() => setExpandedId(isExpanded ? null : task.vendorId)}>
+                      {/* Desktop row */}
+                      <div className="hidden md:grid items-center gap-3" style={{ gridTemplateColumns: "20px 1fr 100px 80px 140px 136px" }}>
+                        <div className="text-muted-foreground">
+                          {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                         </div>
-                        <p className="text-[11px] text-muted-foreground truncate">
-                          {CATEGORIES.find(c => c.key === task.category)?.label} · {task.city}
-                          {task.sequenceLabel && ` · ${task.sequenceLabel}`}
-                          {task.totalSteps > 0 && ` · Step ${task.stepNumber}/${task.totalSteps}`}
-                        </p>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-sm truncate">{task.vendorName}</p>
+                            <SequenceStepper task={task} vendor={vendor} />
+                          </div>
+                          <p className="text-[11px] text-muted-foreground truncate">
+                            {CATEGORIES.find(c => c.key === task.category)?.label} · {task.city}
+                            {task.sequenceLabel && ` · ${task.sequenceLabel}`}
+                            {task.totalSteps > 0 && ` · Step ${task.stepNumber}/${task.totalSteps}`}
+                          </p>
+                        </div>
+                        <div><ChannelPill channel={task.channel} /></div>
+                        <div>
+                          {task.isOverdue ? (
+                            <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">Overdue{task.daysOverdue > 0 && ` +${task.daysOverdue}d`}</span>
+                          ) : task.type === "followup" ? (
+                            <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Follow-up</span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">New</span>
+                          )}
+                        </div>
+                        <div className="text-xs font-mono text-muted-foreground truncate">{task.identifier}</div>
+                        <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Copy" onClick={() => copyToClipboard(message)}><Copy className="h-3.5 w-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Open" onClick={() => link && window.open(link, "_blank", "noopener,noreferrer")}><ExternalLink className="h-3.5 w-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50" title="Sent" onClick={() => markSent(task)}><CheckCircle2 className="h-4 w-4" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Skip" onClick={() => markSkipped(task)}><SkipForward className="h-3.5 w-3.5" /></Button>
+                        </div>
                       </div>
-
-                      <div><ChannelPill channel={task.channel} /></div>
-
-                      <div>
-                        {task.isOverdue ? (
-                          <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">Overdue{task.daysOverdue > 0 && ` +${task.daysOverdue}d`}</span>
-                        ) : task.type === "followup" ? (
-                          <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Follow-up</span>
-                        ) : (
-                          <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">New</span>
-                        )}
-                      </div>
-
-                      <div className="text-xs font-mono text-muted-foreground truncate">{task.identifier}</div>
-
-                      <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" title="Copy" onClick={() => copyToClipboard(message)}><Copy className="h-3.5 w-3.5" /></Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" title="Open" onClick={() => link && window.open(link, "_blank", "noopener,noreferrer")}><ExternalLink className="h-3.5 w-3.5" /></Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50" title="Sent" onClick={() => markSent(task)}><CheckCircle2 className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" title="Skip" onClick={() => markSkipped(task)}><SkipForward className="h-3.5 w-3.5" /></Button>
+                      {/* Mobile card */}
+                      <div className="md:hidden space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <p className="font-semibold text-sm truncate">{task.vendorName}</p>
+                              <SequenceStepper task={task} vendor={vendor} />
+                            </div>
+                            <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+                              {CATEGORIES.find(c => c.key === task.category)?.label} · {task.city}
+                            </p>
+                          </div>
+                          <div className="text-muted-foreground shrink-0">
+                            {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <ChannelPill channel={task.channel} />
+                            {task.isOverdue ? (
+                              <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">Overdue{task.daysOverdue > 0 && ` +${task.daysOverdue}d`}</span>
+                            ) : task.type === "followup" ? (
+                              <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Follow-up</span>
+                            ) : (
+                              <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">New</span>
+                            )}
+                            <span className="text-[11px] font-mono text-muted-foreground truncate max-w-[120px]">{task.identifier}</span>
+                          </div>
+                          <div className="flex gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Copy" onClick={() => copyToClipboard(message)}><Copy className="h-3 w-3" /></Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Open" onClick={() => link && window.open(link, "_blank", "noopener,noreferrer")}><ExternalLink className="h-3 w-3" /></Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600" title="Sent" onClick={() => markSent(task)}><CheckCircle2 className="h-3.5 w-3.5" /></Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Skip" onClick={() => markSkipped(task)}><SkipForward className="h-3 w-3" /></Button>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
@@ -765,20 +799,41 @@ export default function OutreachPage() {
 
             return (
               <div key={log.id} className={`rounded-xl border transition-all hover:border-primary/20 ${isExpanded ? "shadow-sm" : ""}`}>
-                <div className="grid items-center px-4 py-3 cursor-pointer gap-3" style={{ gridTemplateColumns: "20px 48px 1fr 100px 80px 80px 32px" }} onClick={() => setExpandedId(isExpanded ? null : `done-${log.id}`)}>
-                  <div className="text-muted-foreground">{isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</div>
-                  <div className="text-xs text-muted-foreground tabular-nums">{time}</div>
-                  <div className="min-w-0">
-                    <p className="font-semibold text-sm truncate">{vendor.full_name}</p>
-                    <p className="text-[11px] text-muted-foreground">{CATEGORIES.find(c => c.key === vendor.category)?.label} · {vendor.city}</p>
+                <div className="px-3 sm:px-4 py-3 cursor-pointer" onClick={() => setExpandedId(isExpanded ? null : `done-${log.id}`)}>
+                  {/* Desktop row */}
+                  <div className="hidden md:grid items-center gap-3" style={{ gridTemplateColumns: "20px 48px 1fr 100px 80px 80px 32px" }}>
+                    <div className="text-muted-foreground">{isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</div>
+                    <div className="text-xs text-muted-foreground tabular-nums">{time}</div>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm truncate">{vendor.full_name}</p>
+                      <p className="text-[11px] text-muted-foreground">{CATEGORIES.find(c => c.key === vendor.category)?.label} · {vendor.city}</p>
+                    </div>
+                    <div><ChannelPill channel={log.channel} /></div>
+                    <div><span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${actionColor}`}>{actionLabel}</span></div>
+                    <div>
+                      {["interested", "not_interested", "maybe_later", "declined"].includes(vendor.overall_status) ? <StatusBadge status={vendor.overall_status} /> : <span className="text-[10px] text-muted-foreground">Awaiting</span>}
+                    </div>
+                    <div onClick={e => e.stopPropagation()}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-orange-500 hover:text-orange-600 hover:bg-orange-50" title="Revert" onClick={() => revertSent(log)}><Undo2 className="h-3.5 w-3.5" /></Button>
+                    </div>
                   </div>
-                  <div><ChannelPill channel={log.channel} /></div>
-                  <div><span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${actionColor}`}>{actionLabel}</span></div>
-                  <div>
-                    {["interested", "not_interested", "maybe_later", "declined"].includes(vendor.overall_status) ? <StatusBadge status={vendor.overall_status} /> : <span className="text-[10px] text-muted-foreground">Awaiting</span>}
-                  </div>
-                  <div onClick={e => e.stopPropagation()}>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-orange-500 hover:text-orange-600 hover:bg-orange-50" title="Revert — move back to queue" onClick={() => revertSent(log)}><Undo2 className="h-3.5 w-3.5" /></Button>
+                  {/* Mobile card */}
+                  <div className="md:hidden space-y-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-sm truncate">{vendor.full_name}</p>
+                        <p className="text-[11px] text-muted-foreground">{CATEGORIES.find(c => c.key === vendor.category)?.label} · {vendor.city}</p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-orange-500" title="Revert" onClick={() => revertSent(log)}><Undo2 className="h-3 w-3" /></Button>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[11px] text-muted-foreground tabular-nums">{time}</span>
+                      <ChannelPill channel={log.channel} />
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${actionColor}`}>{actionLabel}</span>
+                      {["interested", "not_interested", "maybe_later", "declined"].includes(vendor.overall_status) ? <StatusBadge status={vendor.overall_status} /> : <span className="text-[10px] text-muted-foreground">Awaiting</span>}
+                    </div>
                   </div>
                 </div>
 

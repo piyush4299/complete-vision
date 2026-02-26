@@ -96,7 +96,7 @@ function OverviewTab() {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-7 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
         {statCards.map(s => (
           <Card
             key={s.label}
@@ -118,24 +118,24 @@ function OverviewTab() {
 
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex flex-wrap gap-3">
-            <Input placeholder="Search vendors..." value={search} onChange={e => setSearch(e.target.value)} className="w-56" />
+          <div className="flex flex-col sm:flex-row flex-wrap gap-3">
+            <Input placeholder="Search vendors..." value={search} onChange={e => setSearch(e.target.value)} className="w-full sm:w-56" />
             <Select value={filterCat} onValueChange={setFilterCat}>
-              <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full sm:w-36"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Categories</SelectItem>
                 {CATEGORIES.map(c => <SelectItem key={c.key} value={c.key}>{c.label}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={filterCity} onValueChange={setFilterCity}>
-              <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full sm:w-32"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Cities</SelectItem>
                 {cities.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full sm:w-36"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="pending">Pending</SelectItem>
@@ -149,7 +149,8 @@ function OverviewTab() {
             </Select>
           </div>
         </CardHeader>
-        <CardContent className="overflow-auto pt-0">
+        <CardContent className="pt-0">
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="border-b border-border/60">
@@ -252,8 +253,9 @@ function OverviewTab() {
               )}
             </TableBody>
           </Table>
+          </div>
           {filtered.length > PAGE_SIZE && (
-            <div className="flex items-center justify-between mt-4 px-2">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mt-4 px-2">
               <p className="text-sm text-muted-foreground">
                 Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
               </p>

@@ -101,7 +101,7 @@ export default function ReviewPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Review Queue</h1>
           <p className="text-muted-foreground mt-1">Vendors needing manual category or city assignment ({vendors.length})</p>
@@ -122,7 +122,8 @@ export default function ReviewPage() {
         </Card>
       ) : (
         <Card>
-          <CardContent className="pt-6 overflow-auto">
+          <CardContent className="pt-6">
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -144,7 +145,7 @@ export default function ReviewPage() {
                     <TableCell className="text-xs">{v.email || "—"}</TableCell>
                     <TableCell>
                       <Select value={edits[v.id]?.category || v.category} onValueChange={val => updateEdit(v.id, "category", val)}>
-                        <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="w-full sm:w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           {CATEGORIES.map(c => <SelectItem key={c.key} value={c.key}>{c.label}</SelectItem>)}
                         </SelectContent>
@@ -152,7 +153,7 @@ export default function ReviewPage() {
                     </TableCell>
                     <TableCell>
                       <Select value={edits[v.id]?.city || v.city} onValueChange={val => updateEdit(v.id, "city", val)}>
-                        <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="w-full sm:w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           {CITIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                         </SelectContent>
@@ -168,6 +169,7 @@ export default function ReviewPage() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           </CardContent>
         </Card>
       )}

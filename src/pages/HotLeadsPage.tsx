@@ -48,7 +48,8 @@ export default function HotLeadsPage() {
       </div>
 
       <Card>
-        <CardContent className="overflow-auto pt-6">
+        <CardContent className="pt-6">
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -87,12 +88,13 @@ export default function HotLeadsPage() {
               )}
             </TableBody>
           </Table>
+          </div>
           {vendors.length > PAGE_SIZE && (
-            <div className="flex items-center justify-between mt-4 px-2">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mt-4 px-2">
               <p className="text-sm text-muted-foreground">
                 Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, vendors.length)} of {vendors.length}
               </p>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 justify-center sm:justify-end">
                 <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(p => p - 1)}>
                   <ChevronLeft className="h-4 w-4 mr-1" /> Previous
                 </Button>

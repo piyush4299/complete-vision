@@ -449,7 +449,7 @@ export default function UploadPage() {
             </label>
 
             {/* Category & City - compact row */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Category</label>
                 <Select value={category} onValueChange={setCategory}>
@@ -501,7 +501,7 @@ export default function UploadPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Summary grid */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="rounded-lg border bg-muted/30 p-3 text-center">
                 <p className="text-2xl font-bold">{result.newAdded}</p>
                 <p className="text-xs text-muted-foreground">New Vendors</p>

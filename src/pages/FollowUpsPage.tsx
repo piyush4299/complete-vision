@@ -149,7 +149,7 @@ export default function FollowUpsPage() {
             <p className="text-sm text-muted-foreground text-center py-4">No follow-ups due today 🎉</p>
           ) : (
             Object.entries(dueTodayGroups).filter(([, items]) => items.length > 0).map(([ch, items]) => (
-              <div key={ch} className="flex items-center justify-between rounded-lg border p-3">
+              <div key={ch} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-lg border p-3">
                 <div className="flex items-center gap-3">
                   <span className="text-xl">{channelIcon(ch)}</span>
                   <div>
@@ -157,7 +157,7 @@ export default function FollowUpsPage() {
                     <p className="text-xs text-muted-foreground">{items.length} vendor{items.length !== 1 ? "s" : ""} ready</p>
                   </div>
                 </div>
-                <Button size="sm" onClick={() => startFollowUpSession(ch)}>
+                <Button size="sm" onClick={() => startFollowUpSession(ch)} className="w-full sm:w-auto shrink-0">
                   <Send className="h-3.5 w-3.5 mr-1" /> Start Session
                 </Button>
               </div>
@@ -184,7 +184,7 @@ export default function FollowUpsPage() {
                 .map(([ch, arr]) => `${channelIcon(ch)} ${arr.length}`)
                 .join("  ");
               return (
-                <div key={date} className="flex items-center justify-between rounded-lg border p-3">
+                <div key={date} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-lg border p-3">
                   <div>
                     <p className="font-medium text-sm">{date}</p>
                     <p className="text-xs text-muted-foreground">{items.length} follow-up{items.length !== 1 ? "s" : ""}</p>
@@ -207,7 +207,7 @@ export default function FollowUpsPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             {Object.entries(overdueGroups).filter(([, items]) => items.length > 0).map(([ch, items]) => (
-              <div key={ch} className="flex items-center justify-between rounded-lg border border-destructive/20 p-3">
+              <div key={ch} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-lg border border-destructive/20 p-3">
                 <div className="flex items-center gap-3">
                   <span className="text-xl">{channelIcon(ch)}</span>
                   <div>
@@ -215,7 +215,7 @@ export default function FollowUpsPage() {
                     <p className="text-xs text-muted-foreground">{items.length} overdue</p>
                   </div>
                 </div>
-                <Button size="sm" variant="destructive" onClick={() => startFollowUpSession(ch)}>
+                <Button size="sm" variant="destructive" onClick={() => startFollowUpSession(ch)} className="w-full sm:w-auto shrink-0">
                   <Send className="h-3.5 w-3.5 mr-1" /> Start Session
                 </Button>
               </div>
@@ -237,14 +237,14 @@ export default function FollowUpsPage() {
               Vendors who said "maybe later" more than 30 days ago
             </p>
             {reengagement.map(v => (
-              <div key={v.id} className="flex items-center justify-between rounded-lg border p-3">
+              <div key={v.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-lg border p-3">
                 <div>
                   <p className="font-medium text-sm">{v.full_name}</p>
                   <p className="text-xs text-muted-foreground">
                     {CATEGORIES.find(c => c.key === v.category)?.label} • {v.city} • Responded {v.responded_at ? new Date(v.responded_at).toLocaleDateString() : "—"}
                   </p>
                 </div>
-                <Button size="sm" variant="outline" onClick={() => copyReengagement(v)}>
+                <Button size="sm" variant="outline" onClick={() => copyReengagement(v)} className="w-full sm:w-auto shrink-0">
                   Copy Message
                 </Button>
               </div>
