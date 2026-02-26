@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Copy, Trophy, ChevronLeft, ChevronRight } from "lucide-react";
+import { Copy, Trophy, ChevronLeft, ChevronRight, Undo2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CATEGORIES } from "@/lib/vendor-utils";
 
@@ -31,6 +31,18 @@ export default function HotLeadsPage() {
     await supabase.from("vendors").update({ overall_status: "converted" }).eq("id", id);
     toast({ title: "Marked as converted! 🎉", duration: 2000 });
     fetchData();
+    window.dispatchEvent(new Event("vendors-updated"));
+  };
+
+  const revertToContacted = async (id: string) => {
+    await supabase.from("vendors").update({
+      overall_status: "in_progress",
+      responded_at: null,
+      responded_channel: null,
+    }).eq("id", id);
+    toast({ title: "Reverted to Contacted", duration: 1500 });
+    fetchData();
+    window.dispatchEvent(new Event("vendors-updated"));
   };
 
   const getRespondedChannel = (v: any) => {
@@ -73,6 +85,9 @@ export default function HotLeadsPage() {
                   <TableCell className="text-xs max-w-[200px] truncate">{v.notes || "—"}</TableCell>
                   <TableCell>
                     <div className="flex gap-1 justify-end">
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-orange-500 hover:text-orange-600 hover:bg-orange-50" onClick={() => revertToContacted(v.id)} title="Revert to Contacted">
+                        <Undo2 className="h-3.5 w-3.5" />
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => copy(v.claim_link)} title="Copy Claim Link">
                         <Copy className="h-3.5 w-3.5" />
                       </Button>

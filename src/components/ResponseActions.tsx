@@ -77,7 +77,7 @@ export function ResponseActions({ vendorId, currentStatus, computedStatus, chann
     onUpdate();
   };
 
-  const isTerminal = currentStatus === "converted" || currentStatus === "not_interested" || currentStatus === "declined" || currentStatus === "maybe_later";
+  const isTerminal = currentStatus === "interested" || currentStatus === "converted" || currentStatus === "not_interested" || currentStatus === "declined" || currentStatus === "maybe_later";
   const isInvalid = currentStatus === "invalid";
   const isContacted = computedStatus === "contacted";
 
