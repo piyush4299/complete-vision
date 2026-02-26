@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,41 +7,68 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Save, RefreshCw, Loader2 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { Save, RefreshCw, Loader2, Plus, Trash2, UserCheck, UserX, Copy } from "lucide-react";
 import { generateClaimLink } from "@/lib/vendor-utils";
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Record<string, string>>({});
-  const [templates, setTemplates] = useState<any[]>([]);
+  const [allTemplates, setAllTemplates] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
   const [savingSection, setSavingSection] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState<string | null>(null);
+  const [initializingTemplates, setInitializingTemplates] = useState(false);
   const { toast } = useToast();
+  const { currentUser } = useAuth();
+
+  const [teamMembers, setTeamMembers] = useState<any[]>([]);
+  const [showAddAgent, setShowAddAgent] = useState(false);
+  const [newAgent, setNewAgent] = useState({ name: "", email: "", password: "" });
+  const [savingAgent, setSavingAgent] = useState(false);
+
+  const isAdmin = currentUser?.role === "admin";
+  const userId = currentUser?.id || "";
+
+  const fetchTeamMembers = async () => {
+    const { data } = await supabase.from("team_members").select("*").order("created_at");
+    setTeamMembers(data ?? []);
+  };
+
+  const fetchTemplates = async () => {
+    const { data } = await supabase.from("message_templates").select("*").order("channel").order("type");
+    setAllTemplates(data ?? []);
+  };
 
   useEffect(() => {
-    const fetch = async () => {
-      const [{ data: s }, { data: t }] = await Promise.all([
-        supabase.from("settings").select("*"),
-        supabase.from("message_templates").select("*").order("channel").order("type"),
-      ]);
+    const fetchSettings = async () => {
+      const { data: s } = await supabase.from("settings").select("*");
       const map: Record<string, string> = {};
       for (const row of s ?? []) map[row.key] = row.value;
       setSettings(map);
-      setTemplates(t ?? []);
     };
-    fetch();
+    fetchSettings();
+    fetchTemplates();
+    fetchTeamMembers();
   }, []);
+
+  // Global templates (user_id is null) — admin edits these
+  const globalTemplates = useMemo(
+    () => allTemplates.filter(t => !t.user_id),
+    [allTemplates]
+  );
+
+  // Current user's personal templates
+  const myTemplates = useMemo(
+    () => allTemplates.filter(t => t.user_id === userId),
+    [allTemplates, userId]
+  );
+
+  // Templates shown in the editor: user's own if they exist, otherwise global for admin
+  const editableTemplates = isAdmin ? globalTemplates : myTemplates;
 
   const updateSetting = (key: string, value: string) => {
     setSettings(prev => ({ ...prev, [key]: value }));
-  };
-
-  const saveSetting = async (key: string) => {
-    const value = settings[key];
-    if (!value) return;
-    await supabase.from("settings").upsert({ key, value, updated_at: new Date().toISOString() } as any, { onConflict: "key" });
-    toast({ title: "Saved!", duration: 1500 });
   };
 
   const saveSectionSettings = async (sectionTitle: string, keys: string[]) => {
@@ -84,7 +111,6 @@ export default function SettingsPage() {
         setRegenerating(false);
         return;
       }
-
       const updates = vendors.map(v => {
         const name = v.full_name || v.username || "there";
         const newLink = generateClaimLink(name, v.phone, v.email, baseUrl);
@@ -94,20 +120,18 @@ export default function SettingsPage() {
       const failed = results.filter(r => r.error);
       if (failed.length > 0) {
         toast({ title: "Some links failed", description: `${failed.length} of ${vendors.length} failed`, variant: "destructive" });
-        setRegenerating(false);
-        return;
+      } else {
+        toast({ title: `Updated ${vendors.length} claim links` });
       }
-
-      toast({ title: `Updated ${vendors.length} claim links` });
       window.dispatchEvent(new Event("vendors-updated"));
-    } catch (err) {
+    } catch {
       toast({ title: "Error regenerating", variant: "destructive" });
     }
     setRegenerating(false);
   };
 
   const updateTemplate = (id: string, field: string, value: string) => {
-    setTemplates(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
+    setAllTemplates(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
   };
 
   const saveTemplate = async (template: any) => {
@@ -119,7 +143,6 @@ export default function SettingsPage() {
         body: template.body,
         updated_at: new Date().toISOString(),
       }).eq("id", template.id);
-
       toast({ title: "Template saved!", duration: 1500 });
       window.dispatchEvent(new Event("vendors-updated"));
     } finally {
@@ -127,12 +150,64 @@ export default function SettingsPage() {
     }
   };
 
-  const settingsConfig = [
+  const initializeMyTemplates = async () => {
+    if (myTemplates.length > 0) {
+      toast({ title: "You already have templates", description: "Edit your existing templates below.", duration: 2000 });
+      return;
+    }
+    setInitializingTemplates(true);
+    try {
+      const inserts = globalTemplates.map(t => ({
+        channel: t.channel,
+        type: t.type,
+        subject: t.subject || "",
+        body: t.body || "",
+        is_active: true,
+        user_id: userId,
+      }));
+      if (inserts.length === 0) {
+        toast({ title: "No global templates to copy", variant: "destructive" });
+        setInitializingTemplates(false);
+        return;
+      }
+      const { error } = await supabase.from("message_templates").insert(inserts as any[]);
+      if (error) {
+        toast({ title: "Error copying templates", description: error.message, variant: "destructive" });
+      } else {
+        toast({ title: `Copied ${inserts.length} templates to your account` });
+        await fetchTemplates();
+      }
+    } finally {
+      setInitializingTemplates(false);
+    }
+  };
+
+  // ─── Settings sections config ─────────────────────────────────────────────
+
+  const agentSettings = [
     {
-      title: "🛡️ Instagram Safety",
+      title: "✍️ My Sender Details",
       items: [
-        { key: "insta_account_age", label: "Account age", type: "select", options: ["new", "warm", "aged"], optionLabels: ["New (< 2 weeks) — 15/day", "Warm (2-4 weeks) — 25/day", "Aged (> 1 month) — 40/day"] },
-        { key: "insta_last_action_block", label: "Last action block date (leave empty if never)", type: "date" },
+        { key: `${userId}:sender_name`, label: "Your name (shown in messages)", type: "text" },
+        { key: `${userId}:sender_phone`, label: "Your phone number", type: "text" },
+        { key: `${userId}:sender_title`, label: "Your title / designation", type: "text" },
+      ],
+    },
+    {
+      title: "🛡️ My Instagram Safety",
+      items: [
+        { key: `${userId}:insta_account_age`, label: "Account age", type: "select", options: ["new", "warm", "aged"], optionLabels: ["New (< 2 weeks) — 15/day", "Warm (2-4 weeks) — 25/day", "Aged (> 1 month) — 40/day"] },
+        { key: `${userId}:insta_last_action_block`, label: "Last action block date (leave empty if never)", type: "date" },
+      ],
+    },
+  ];
+
+  const adminOnlySettings = [
+    {
+      title: "🛡️ Instagram Safety (Global Default)",
+      items: [
+        { key: "insta_account_age", label: "Default account age", type: "select", options: ["new", "warm", "aged"], optionLabels: ["New (< 2 weeks) — 15/day", "Warm (2-4 weeks) — 25/day", "Aged (> 1 month) — 40/day"] },
+        { key: "insta_last_action_block", label: "Default last action block date", type: "date" },
       ],
     },
     {
@@ -170,6 +245,8 @@ export default function SettingsPage() {
     },
   ];
 
+  const settingsConfig = isAdmin ? [...agentSettings, ...adminOnlySettings] : agentSettings;
+
   const channelLabel = (ch: string) => ch === "instagram" ? "📸 Instagram" : ch === "whatsapp" ? "💬 WhatsApp" : "📧 Email";
   const typeLabel = (t: string) => {
     if (t.startsWith("initial_")) return `Initial #${t.split("_")[1]}`;
@@ -178,13 +255,17 @@ export default function SettingsPage() {
     return t;
   };
 
+  // ─── Render ───────────────────────────────────────────────────────────────
+
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <h1 className="text-2xl font-bold tracking-tight">⚙️ Settings</h1>
-        <Button onClick={saveAllSettings} disabled={saving} className="w-full sm:w-auto">
-          <Save className="h-4 w-4 mr-1" /> {saving ? "Saving..." : "Save All Settings"}
-        </Button>
+        <h1 className="text-2xl font-bold tracking-tight">⚙️ {isAdmin ? "Settings" : "My Settings"}</h1>
+        {isAdmin && (
+          <Button onClick={saveAllSettings} disabled={saving} className="w-full sm:w-auto">
+            <Save className="h-4 w-4 mr-1" /> {saving ? "Saving..." : "Save All Settings"}
+          </Button>
+        )}
       </div>
 
       {/* Settings Sections */}
@@ -235,12 +316,7 @@ export default function SettingsPage() {
                   <p className="text-xs text-muted-foreground mb-2">
                     After changing the base URL, click below to update all existing vendor claim links and regenerate their messages.
                   </p>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={regenerateAllClaimLinks}
-                    disabled={regenerating}
-                  >
+                  <Button size="sm" variant="outline" onClick={regenerateAllClaimLinks} disabled={regenerating}>
                     <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${regenerating ? "animate-spin" : ""}`} />
                     {regenerating ? "Regenerating..." : "Regenerate All Claim Links & Messages"}
                   </Button>
@@ -251,13 +327,140 @@ export default function SettingsPage() {
         );
       })}
 
-      {/* Message Templates */}
+      {/* Team Members (admin only) */}
+      {isAdmin && (
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">👥 Team Members</CardTitle>
+              <Button size="sm" variant="outline" onClick={() => setShowAddAgent(v => !v)}>
+                <Plus className="h-3.5 w-3.5 mr-1" /> Add Agent
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {showAddAgent && (
+              <div className="rounded-lg border p-3 bg-muted/30 space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <Input placeholder="Name" value={newAgent.name} onChange={e => setNewAgent(a => ({ ...a, name: e.target.value }))} />
+                  <Input placeholder="Email" type="email" value={newAgent.email} onChange={e => setNewAgent(a => ({ ...a, email: e.target.value.toLowerCase() }))} />
+                  <Input placeholder="Password" type="text" value={newAgent.password} onChange={e => setNewAgent(a => ({ ...a, password: e.target.value }))} />
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" disabled={savingAgent || !newAgent.name || !newAgent.email || !newAgent.password} onClick={async () => {
+                    setSavingAgent(true);
+                    const { error } = await supabase.from("team_members").insert({
+                      name: newAgent.name.trim(),
+                      email: newAgent.email.trim(),
+                      password: newAgent.password,
+                      role: "agent",
+                    });
+                    if (error) {
+                      toast({ title: "Error adding agent", description: error.message, variant: "destructive" });
+                    } else {
+                      toast({ title: "Agent added" });
+                      setNewAgent({ name: "", email: "", password: "" });
+                      setShowAddAgent(false);
+                      fetchTeamMembers();
+                    }
+                    setSavingAgent(false);
+                  }}>
+                    {savingAgent ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Plus className="h-3.5 w-3.5 mr-1" />} Add
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => { setShowAddAgent(false); setNewAgent({ name: "", email: "", password: "" }); }}>Cancel</Button>
+                </div>
+              </div>
+            )}
+            <div className="rounded-lg border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-medium text-xs text-muted-foreground">Name</th>
+                    <th className="text-left px-3 py-2 font-medium text-xs text-muted-foreground">Email</th>
+                    <th className="text-left px-3 py-2 font-medium text-xs text-muted-foreground">Role</th>
+                    <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground">Status</th>
+                    <th className="text-right px-3 py-2 font-medium text-xs text-muted-foreground">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {teamMembers.map(m => (
+                    <tr key={m.id} className="border-t">
+                      <td className="px-3 py-2 font-medium">{m.name}</td>
+                      <td className="px-3 py-2 text-muted-foreground font-mono text-xs">{m.email}</td>
+                      <td className="px-3 py-2">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${m.role === "admin" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"}`}>
+                          {m.role}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        {m.is_active ? (
+                          <span className="inline-flex items-center gap-1 text-emerald-600 text-xs"><UserCheck className="h-3 w-3" /> Active</span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-red-500 text-xs"><UserX className="h-3 w-3" /> Inactive</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {m.id !== currentUser?.id && (
+                          <div className="flex gap-1 justify-end">
+                            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={async () => {
+                              await supabase.from("team_members").update({ is_active: !m.is_active }).eq("id", m.id);
+                              fetchTeamMembers();
+                              toast({ title: m.is_active ? "Deactivated" : "Activated", duration: 1500 });
+                            }}>
+                              {m.is_active ? "Deactivate" : "Activate"}
+                            </Button>
+                            {m.role !== "admin" && (
+                              <Button size="sm" variant="ghost" className="h-7 text-xs text-red-500 hover:text-red-700 hover:bg-red-50" onClick={async () => {
+                                await supabase.from("team_members").delete().eq("id", m.id);
+                                fetchTeamMembers();
+                                toast({ title: "Agent removed", duration: 1500 });
+                              }}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Tasks are automatically divided among active agents. Each agent sees their own portion of the daily queue.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Message Templates — visible to all users */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">📝 Message Templates</CardTitle>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <CardTitle className="text-base">
+                📝 {isAdmin ? "Message Templates (Global Defaults)" : "My Message Templates"}
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                Placeholders: {"{name}"}, {"{category}"}, {"{city}"}, {"{claim_link}"}, {"{sender_name}"}, {"{sender_phone}"}, {"{sender_title}"}
+              </p>
+            </div>
+            {!isAdmin && myTemplates.length === 0 && (
+              <Button size="sm" variant="outline" onClick={initializeMyTemplates} disabled={initializingTemplates} className="shrink-0">
+                {initializingTemplates ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Copy className="h-3.5 w-3.5 mr-1" />}
+                {initializingTemplates ? "Copying..." : "Copy Global Templates"}
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {templates.map(t => (
+          {!isAdmin && myTemplates.length === 0 && (
+            <div className="text-center py-8 text-muted-foreground">
+              <p className="text-sm">You don't have personal templates yet.</p>
+              <p className="text-xs mt-1">Click "Copy Global Templates" above to get started with the admin's default templates, then customize them.</p>
+            </div>
+          )}
+          {editableTemplates.map(t => (
             <div key={t.id} className="rounded-lg border p-4 space-y-2">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <p className="text-sm font-medium">
@@ -279,9 +482,7 @@ export default function SettingsPage() {
                 </div>
               )}
               <div>
-                <Label className="text-xs text-muted-foreground">
-                  Body <span className="text-muted-foreground/50">(use {"{name}"}, {"{category}"}, {"{city}"}, {"{claim_link}"})</span>
-                </Label>
+                <Label className="text-xs text-muted-foreground">Body</Label>
                 <Textarea
                   value={t.body || ""}
                   onChange={e => updateTemplate(t.id, "body", e.target.value)}

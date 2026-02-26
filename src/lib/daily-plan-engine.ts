@@ -77,11 +77,19 @@ const SAFETY_LIMITS: Record<AccountAge, { daily: number; weekly: number; burst: 
   aged: { daily: 40, weekly: 200, burst: 5, pauseSec: 120 },
 };
 
-function getInstaSafetyLimit(settings: Record<string, string>): { daily: number; weekly: number } {
-  const age = (settings.insta_account_age || "warm") as AccountAge;
+function getInstaSafetyLimit(settings: Record<string, string>, userId?: string): { daily: number; weekly: number } {
+  // Per-agent keys take priority over global defaults
+  const ageKey = userId && settings[`${userId}:insta_account_age`]
+    ? `${userId}:insta_account_age`
+    : "insta_account_age";
+  const blockKey = userId && settings[`${userId}:insta_last_action_block`]
+    ? `${userId}:insta_last_action_block`
+    : "insta_last_action_block";
+
+  const age = (settings[ageKey] || "warm") as AccountAge;
   const base = SAFETY_LIMITS[age] || SAFETY_LIMITS.warm;
 
-  const lastBlock = settings.insta_last_action_block;
+  const lastBlock = settings[blockKey];
   if (lastBlock) {
     const daysSinceBlock = Math.floor((Date.now() - new Date(lastBlock).getTime()) / 86400000);
     if (daysSinceBlock < 7) {
@@ -200,21 +208,27 @@ export function buildDailyPlan(
   sequences: any[],
   logs: any[],
   settings: Record<string, string>,
+  userId?: string,
+  totalAgents: number = 1,
+  agentIndex: number = 0,
 ): DailyPlan {
 
   const now = Date.now();
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
 
-  // ── Step 1: Count what's done today ──────────────────────────────────────
+  // ── Step 1: Count what's done today (filtered to current user if multi-user) ─
 
   const todayLogs = logs.filter(l => isToday(l.created_at));
-  const sentToday = todayLogs.filter(l => l.action === "sent" || l.action === "followed_up");
+  const mySentToday = todayLogs.filter(l =>
+    (l.action === "sent" || l.action === "followed_up") &&
+    (!userId || !l.user_id || l.user_id === userId)
+  );
 
   const doneToday = {
-    instagram: sentToday.filter(l => l.channel === "instagram").length,
-    whatsapp:  sentToday.filter(l => l.channel === "whatsapp").length,
-    email:     sentToday.filter(l => l.channel === "email").length,
+    instagram: mySentToday.filter(l => l.channel === "instagram").length,
+    whatsapp:  mySentToday.filter(l => l.channel === "whatsapp").length,
+    email:     mySentToday.filter(l => l.channel === "email").length,
     total: 0,
     replies: vendors.filter(v => v.responded_at && isToday(v.responded_at)).length,
   };
@@ -222,7 +236,7 @@ export function buildDailyPlan(
 
   // ── Step 2: Calculate safe limits per channel ────────────────────────────
 
-  const instaSafety = getInstaSafetyLimit(settings);
+  const instaSafety = getInstaSafetyLimit(settings, userId);
   const instaTarget = Math.min(
     parseInt(settings.instagram_daily_target || "30"),
     instaSafety.daily
@@ -238,41 +252,46 @@ export function buildDailyPlan(
   const waTarget    = parseInt(settings.whatsapp_daily_target || "20");
   const emailTarget = parseInt(settings.email_daily_target || "15");
 
+  const agentCount = Math.max(1, totalAgents);
+  const myInstaTarget = Math.ceil(effectiveInstaDaily / agentCount);
+  const myWaTarget    = Math.ceil(waTarget / agentCount);
+  const myEmailTarget = Math.ceil(emailTarget / agentCount);
+
   const remaining: Record<Channel, number> = {
-    instagram: Math.max(0, effectiveInstaDaily - doneToday.instagram),
-    whatsapp:  Math.max(0, waTarget - doneToday.whatsapp),
-    email:     Math.max(0, emailTarget - doneToday.email),
+    instagram: Math.max(0, myInstaTarget - doneToday.instagram),
+    whatsapp:  Math.max(0, myWaTarget - doneToday.whatsapp),
+    email:     Math.max(0, myEmailTarget - doneToday.email),
   };
 
   const progress: Record<Channel, ChannelProgress> = {
     instagram: {
       doneToday: doneToday.instagram,
-      target: instaTarget,
+      target: myInstaTarget,
       safeLimit: instaSafety.daily,
       remaining: remaining.instagram,
       weeklyDone: weeklyInsta,
       weeklyCap: instaSafety.weekly,
-      pct: instaTarget > 0 ? Math.round((doneToday.instagram / instaTarget) * 100) : 0,
+      pct: myInstaTarget > 0 ? Math.round((doneToday.instagram / myInstaTarget) * 100) : 0,
       safe: doneToday.instagram < instaSafety.daily,
     },
     whatsapp: {
       doneToday: doneToday.whatsapp,
-      target: waTarget,
+      target: myWaTarget,
       safeLimit: 50,
       remaining: remaining.whatsapp,
       weeklyDone: weeklyWa,
       weeklyCap: 300,
-      pct: waTarget > 0 ? Math.round((doneToday.whatsapp / waTarget) * 100) : 0,
+      pct: myWaTarget > 0 ? Math.round((doneToday.whatsapp / myWaTarget) * 100) : 0,
       safe: true,
     },
     email: {
       doneToday: doneToday.email,
-      target: emailTarget,
+      target: myEmailTarget,
       safeLimit: 50,
       remaining: remaining.email,
       weeklyDone: weeklyEmail,
       weeklyCap: 500,
-      pct: emailTarget > 0 ? Math.round((doneToday.email / emailTarget) * 100) : 0,
+      pct: myEmailTarget > 0 ? Math.round((doneToday.email / myEmailTarget) * 100) : 0,
       safe: true,
     },
   };
@@ -432,16 +451,19 @@ export function buildDailyPlan(
     }
   }
 
-  // ── Step 4: Sort by priority, cap by remaining budget ────────────────────
-  // Overdue tasks get high priority scores so they appear first within
-  // the budget, but we still respect daily safety limits.
+  // ── Step 4: Sort by priority, split across agents, cap by budget ─────────
 
   allTasks.sort((a, b) => b.priority - a.priority);
+
+  // Round-robin: each agent gets every Nth task from the priority-sorted list
+  const myTasks = agentCount > 1
+    ? allTasks.filter((_, i) => i % agentCount === agentIndex)
+    : allTasks;
 
   const budgetRemaining = { ...remaining };
   const plannedTasks: DailyTask[] = [];
 
-  for (const task of allTasks) {
+  for (const task of myTasks) {
     if (budgetRemaining[task.channel] > 0) {
       plannedTasks.push(task);
       budgetRemaining[task.channel]--;
@@ -529,7 +551,7 @@ export function buildDailyPlan(
 
   const totalTasks = plannedTasks.length;
   const totalEstimatedMinutes = sessions.reduce((s, sess) => s + sess.estimatedMinutes, 0);
-  const totalTarget = instaTarget + waTarget + emailTarget;
+  const totalTarget = myInstaTarget + myWaTarget + myEmailTarget;
   const overallPct = totalTarget > 0 ? Math.round((doneToday.total / totalTarget) * 100) : 0;
 
   return {

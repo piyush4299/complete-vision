@@ -12,6 +12,7 @@ import { VendorTimeline } from "@/components/VendorTimeline";
 import { Users, UserCheck, UserX, Heart, Trophy, ChevronLeft, ChevronRight, Instagram, Phone, Mail, Globe, ThumbsDown, Ban } from "lucide-react";
 import { CATEGORIES } from "@/lib/vendor-utils";
 import { ResponseActions } from "@/components/ResponseActions";
+import { useAuth } from "@/contexts/AuthContext";
 import ChannelDashboard from "./ChannelDashboard";
 
 function computeOverallStatus(v: any): string {
@@ -298,8 +299,71 @@ function CallsTab() {
 const TAB_OPTIONS = ["overview", "instagram", "whatsapp", "email", "calls"] as const;
 type TabValue = typeof TAB_OPTIONS[number];
 
+function TeamActivityCard() {
+  const [teamData, setTeamData] = useState<{ name: string; instagram: number; whatsapp: number; email: number }[]>([]);
+
+  useEffect(() => {
+    const fetchTeamActivity = async () => {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const [{ data: members }, { data: logs }] = await Promise.all([
+        supabase.from("team_members").select("id, name").eq("is_active", true),
+        supabase.from("outreach_log").select("user_id, channel, action").gte("created_at", todayStart.toISOString()),
+      ]);
+
+      const sentLogs = (logs ?? []).filter(l => l.action === "sent" || l.action === "followed_up");
+      const rows = (members ?? []).map(m => ({
+        name: m.name,
+        instagram: sentLogs.filter(l => l.user_id === m.id && l.channel === "instagram").length,
+        whatsapp: sentLogs.filter(l => l.user_id === m.id && l.channel === "whatsapp").length,
+        email: sentLogs.filter(l => l.user_id === m.id && l.channel === "email").length,
+      }));
+      setTeamData(rows);
+    };
+    fetchTeamActivity();
+  }, []);
+
+  if (teamData.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <h3 className="text-sm font-semibold">👥 Team Activity Today</h3>
+      </CardHeader>
+      <CardContent>
+        <div className="rounded-lg border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50">
+              <tr>
+                <th className="text-left px-3 py-2 font-medium text-xs text-muted-foreground">Agent</th>
+                <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground">IG</th>
+                <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground">WA</th>
+                <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground">Email</th>
+                <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {teamData.map(d => (
+                <tr key={d.name} className="border-t">
+                  <td className="px-3 py-2 font-medium">{d.name}</td>
+                  <td className="px-3 py-2 text-center">{d.instagram}</td>
+                  <td className="px-3 py-2 text-center">{d.whatsapp}</td>
+                  <td className="px-3 py-2 text-center">{d.email}</td>
+                  <td className="px-3 py-2 text-center font-semibold">{d.instagram + d.whatsapp + d.email}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function DashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { currentUser } = useAuth();
   const rawTab = searchParams.get("tab");
   const activeTab: TabValue = TAB_OPTIONS.includes(rawTab as TabValue) ? (rawTab as TabValue) : "overview";
 
@@ -316,6 +380,8 @@ export default function DashboardPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
       </div>
+
+      {currentUser?.role === "admin" && <TeamActivityCard />}
 
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">

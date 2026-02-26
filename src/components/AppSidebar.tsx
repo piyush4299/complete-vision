@@ -1,8 +1,9 @@
 import { Upload, LayoutDashboard, Target, AlertCircle, Flame, Home, BarChart3, Settings } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Sidebar,
   SidebarContent,
@@ -14,21 +15,27 @@ import {
   SidebarSeparator,
 } from "@/components/ui/sidebar";
 
-const mainItems = [
-  { title: "Today", url: "/", icon: Home },
-  { title: "Upload", url: "/upload", icon: Upload },
-  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "Analytics", url: "/analytics", icon: BarChart3 },
-  { title: "Outreach", url: "/outreach", icon: Target },
-  { title: "Hot Leads", url: "/hot-leads", icon: Flame },
-  { title: "Review Queue", url: "/review", icon: AlertCircle },
+const allMainItems = [
+  { title: "Today", url: "/", icon: Home, adminOnly: false },
+  { title: "Upload", url: "/upload", icon: Upload, adminOnly: true },
+  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard, adminOnly: false },
+  { title: "Analytics", url: "/analytics", icon: BarChart3, adminOnly: true },
+  { title: "Outreach", url: "/outreach", icon: Target, adminOnly: false },
+  { title: "Hot Leads", url: "/hot-leads", icon: Flame, adminOnly: false },
+  { title: "Review Queue", url: "/review", icon: AlertCircle, adminOnly: true },
 ];
 
 
 export function AppSidebar() {
   const location = useLocation();
+  const { currentUser } = useAuth();
   const [reviewCount, setReviewCount] = useState(0);
   const [hotLeadsCount, setHotLeadsCount] = useState(0);
+
+  const mainItems = useMemo(() => {
+    const isAdmin = currentUser?.role === "admin";
+    return allMainItems.filter(item => !item.adminOnly || isAdmin);
+  }, [currentUser]);
 
   useEffect(() => {
     const fetchCounts = async () => {
@@ -92,7 +99,6 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <SidebarSeparator />
-
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -100,7 +106,7 @@ export function AppSidebar() {
                 <SidebarMenuButton asChild isActive={location.pathname === "/settings"}>
                   <NavLink to="/settings" end activeClassName="bg-sidebar-accent text-sidebar-accent-foreground">
                     <Settings className="h-4 w-4" />
-                    <span className="flex-1">Settings</span>
+                    <span className="flex-1">{currentUser?.role === "admin" ? "Settings" : "My Settings"}</span>
                   </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>

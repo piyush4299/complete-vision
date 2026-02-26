@@ -14,10 +14,12 @@ import {
   Mail, Clock, Zap, Undo2, Link2, Check, Loader2, Pencil, Save, X, Globe,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   CATEGORIES,
   applyTemplatePlaceholders,
   stableVendorHash,
+  type SenderInfo,
 } from "@/lib/vendor-utils";
 import { buildDailyPlan, type DailyPlan, type DailyTask } from "@/lib/daily-plan-engine";
 
@@ -101,12 +103,14 @@ function getActionLink(vendor: any, channel: Channel, message: string, subject: 
 export default function OutreachPage() {
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
+  const { currentUser } = useAuth();
 
   const [vendors, setVendors] = useState<any[]>([]);
   const [sequences, setSequences] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [messageTemplates, setMessageTemplates] = useState<any[]>([]);
+  const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [activeTab, setActiveTab] = useState<"queue" | "done">("queue");
@@ -130,17 +134,19 @@ export default function OutreachPage() {
   // ─── Data Fetching ───────────────────────────────────────────────────────
 
   const fetchData = async () => {
-    const [{ data: v }, { data: seq }, { data: l }, { data: s }, { data: mt }] = await Promise.all([
+    const [{ data: v }, { data: seq }, { data: l }, { data: s }, { data: mt }, { data: tm }] = await Promise.all([
       supabase.from("vendors").select("*"),
       supabase.from("vendor_sequences").select("*"),
       supabase.from("outreach_log").select("*"),
       supabase.from("settings").select("*"),
       supabase.from("message_templates").select("*").eq("is_active", true),
+      supabase.from("team_members").select("*").eq("is_active", true),
     ]);
     setVendors(v ?? []);
     setSequences(seq ?? []);
     setLogs(l ?? []);
     setMessageTemplates(mt ?? []);
+    setTeamMembers(tm ?? []);
     const map: Record<string, string> = {};
     for (const row of s ?? []) map[row.key] = row.value;
     setSettings(map);
@@ -169,9 +175,12 @@ export default function OutreachPage() {
   }, [searchParams]);
 
   const plan: DailyPlan | null = useMemo(() => {
-    if (loading) return null;
-    return buildDailyPlan(vendors, sequences, logs, settings);
-  }, [vendors, sequences, logs, settings, loading]);
+    if (loading || !currentUser) return null;
+    const sortedAgents = [...teamMembers].sort((a, b) => a.id.localeCompare(b.id));
+    const agentIndex = sortedAgents.findIndex(a => a.id === currentUser.id);
+    const idx = agentIndex >= 0 ? agentIndex : 0;
+    return buildDailyPlan(vendors, sequences, logs, settings, currentUser.id, sortedAgents.length || 1, idx);
+  }, [vendors, sequences, logs, settings, loading, currentUser, teamMembers]);
 
   const vendorMap = useMemo(() => {
     const m = new Map<string, any>();
@@ -190,41 +199,59 @@ export default function OutreachPage() {
   }, [plan, channelFilter, typeFilter]);
 
   const templateMap = useMemo(() => {
-    const map: Record<string, any[]> = {};
-    for (const t of messageTemplates) {
-      const groupKey = t.type.startsWith("initial_") ? "initial" : t.type;
-      const key = `${t.channel}:${groupKey}`;
-      if (!map[key]) map[key] = [];
-      map[key].push(t);
-    }
-    for (const key of Object.keys(map)) {
-      map[key].sort((a: any, b: any) => a.type.localeCompare(b.type));
-    }
-    return map;
-  }, [messageTemplates]);
+    // Prefer user-specific templates; fall back to global (user_id null) per channel:type
+    const userTemplates = messageTemplates.filter(t => t.user_id === currentUser?.id);
+    const globalTemplates = messageTemplates.filter(t => !t.user_id);
+
+    const buildMap = (list: any[]) => {
+      const m: Record<string, any[]> = {};
+      for (const t of list) {
+        const groupKey = t.type.startsWith("initial_") ? "initial" : t.type;
+        const key = `${t.channel}:${groupKey}`;
+        if (!m[key]) m[key] = [];
+        m[key].push(t);
+      }
+      for (const key of Object.keys(m)) {
+        m[key].sort((a: any, b: any) => a.type.localeCompare(b.type));
+      }
+      return m;
+    };
+
+    // If user has any personal templates, use those entirely; otherwise use global
+    return userTemplates.length > 0 ? buildMap(userTemplates) : buildMap(globalTemplates);
+  }, [messageTemplates, currentUser]);
+
+  const senderInfo: SenderInfo = useMemo(() => {
+    const uid = currentUser?.id || "";
+    return {
+      name: settings[`${uid}:sender_name`] || settings.admin_name || currentUser?.name || "",
+      phone: settings[`${uid}:sender_phone`] || "",
+      title: settings[`${uid}:sender_title`] || "",
+    };
+  }, [settings, currentUser]);
 
   const getVendorMessage = useCallback((vendor: any, channel: Channel, isFollowUp: boolean): string => {
     const typeKey = isFollowUp ? "followup" : "initial";
     const templates = templateMap[`${channel}:${typeKey}`];
     if (templates?.length) {
       const idx = isFollowUp ? 0 : stableVendorHash(vendor.id) % templates.length;
-      return applyTemplatePlaceholders(templates[idx].body, vendor);
+      return applyTemplatePlaceholders(templates[idx].body, vendor, senderInfo);
     }
     if (channel === "instagram") return vendor.insta_message || "";
     if (channel === "whatsapp") return vendor.whatsapp_message || "";
     if (channel === "email") return vendor.email_body || "";
     return "";
-  }, [templateMap]);
+  }, [templateMap, senderInfo]);
 
   const getVendorSubject = useCallback((vendor: any, isFollowUp: boolean): string => {
     const typeKey = isFollowUp ? "followup" : "initial";
     const templates = templateMap[`email:${typeKey}`];
     if (templates?.length) {
       const idx = isFollowUp ? 0 : stableVendorHash(vendor.id) % templates.length;
-      return templates[idx].subject ? applyTemplatePlaceholders(templates[idx].subject, vendor) : "";
+      return templates[idx].subject ? applyTemplatePlaceholders(templates[idx].subject, vendor, senderInfo) : "";
     }
     return vendor.email_subject || "";
-  }, [templateMap]);
+  }, [templateMap, senderInfo]);
 
   const doneTodayList = useMemo(() => {
     const today = new Date().toDateString();
@@ -260,6 +287,7 @@ export default function OutreachPage() {
       await supabase.from("outreach_log").insert({
         vendor_id: vendor.id, channel: task.channel, action: newStatus,
         message_sent: getVendorMessage(vendor, task.channel, task.type === "followup"),
+        user_id: currentUser?.id || null,
       });
 
       const seq = sequences.find(s => s.vendor_id === vendor.id && s.is_active);
@@ -285,7 +313,7 @@ export default function OutreachPage() {
       if (!vendor) return;
       const statusField = task.channel === "instagram" ? "insta_status" : task.channel === "whatsapp" ? "whatsapp_status" : "email_status";
       await supabase.from("vendors").update({ [statusField]: "skipped" }).eq("id", vendor.id);
-      await supabase.from("outreach_log").insert({ vendor_id: vendor.id, channel: task.channel, action: "skipped" });
+      await supabase.from("outreach_log").insert({ vendor_id: vendor.id, channel: task.channel, action: "skipped", user_id: currentUser?.id || null });
 
       const seq = sequences.find(s => s.vendor_id === vendor.id && s.is_active);
       if (seq) {

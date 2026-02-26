@@ -348,15 +348,23 @@ export function regenerateVendorMessages(
   }
   return result;
 }
+export interface SenderInfo {
+  name?: string;
+  phone?: string;
+  title?: string;
+}
 
-export function applyTemplatePlaceholders(body: string, vendor: any): string {
+export function applyTemplatePlaceholders(body: string, vendor: any, sender?: SenderInfo): string {
   const name = vendor.full_name || deriveFriendlyName(vendor.username, vendor.full_name, vendor.email);
   const catLabel = CATEGORIES.find(c => c.key === vendor.category)?.label.toLowerCase() ?? vendor.category;
   return body
     .replace(/\{name\}/g, name)
     .replace(/\{category\}/g, catLabel)
     .replace(/\{city\}/g, vendor.city || "")
-    .replace(/\{claim_link\}/g, vendor.claim_link || "");
+    .replace(/\{claim_link\}/g, vendor.claim_link || "")
+    .replace(/\{sender_name\}/g, sender?.name || "")
+    .replace(/\{sender_phone\}/g, sender?.phone || "")
+    .replace(/\{sender_title\}/g, sender?.title || "");
 }
 
 export function stableVendorHash(id: string): number {
