@@ -225,10 +225,10 @@ export function buildDailyPlan(
     (!userId || !l.user_id || l.user_id === userId)
   );
 
-  // Vendors skipped today should not reappear in today's queue
+  // Vendors skipped today should not reappear in today's queue (any channel)
   const skippedTodaySet = new Set<string>();
   for (const l of todayLogs) {
-    if (l.action === "skipped") skippedTodaySet.add(`${l.vendor_id}:${l.channel}`);
+    if (l.action === "skipped") skippedTodaySet.add(l.vendor_id);
   }
 
   const doneToday = {
@@ -319,6 +319,7 @@ export function buildDailyPlan(
 
   for (const v of vendors) {
     if (EXCLUDED_STATUSES.has(v.overall_status)) continue;
+    if (skippedTodaySet.has(v.id)) continue;
 
     const uploadedDaysAgo = Math.floor((now - new Date(v.created_at).getTime()) / 86400000);
     const hasAll = v.has_instagram && v.has_phone && v.has_email;
@@ -331,9 +332,6 @@ export function buildDailyPlan(
       const steps: SequenceStep[] = (typeof seq.steps === "string" ? JSON.parse(seq.steps) : seq.steps) as SequenceStep[];
       const currentStep = steps[seq.current_step];
       if (!currentStep || currentStep.channel === "exhausted") continue;
-
-      // Skip if this vendor+channel was skipped today
-      if (skippedTodaySet.has(`${v.id}:${currentStep.channel}`)) continue;
 
       // If sequence was advanced to a followup step but the initial was
       // never actually sent (status is "skipped"/"pending"), don't create
@@ -411,7 +409,6 @@ export function buildDailyPlan(
         const step = steps[i];
         if (step.channel === "exhausted") break;
         if (!vendorHasChannel(v, step.channel)) continue;
-        if (skippedTodaySet.has(`${v.id}:${step.channel}`)) continue;
 
         const status = vendorChannelStatus(v, step.channel);
         const contactedAt = vendorContactedAt(v, step.channel);

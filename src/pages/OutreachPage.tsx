@@ -98,6 +98,15 @@ function getActionLink(vendor: any, channel: Channel, message: string, subject: 
   return "";
 }
 
+function openLink(link: string) {
+  if (!link) return;
+  if (link.startsWith("mailto:")) {
+    window.location.href = link;
+  } else {
+    window.open(link, "_blank", "noopener,noreferrer");
+  }
+}
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function OutreachPage() {
@@ -500,7 +509,7 @@ export default function OutreachPage() {
     const subj = task.channel === "email" ? getVendorSubject(vendor, task.type === "followup") : "";
     const link = getActionLink(vendor, task.channel, msg, subj);
     copyToClipboard(msg);
-    if (link) window.open(link, "_blank", "noopener,noreferrer");
+    if (link) openLink(link);
   };
 
   useEffect(() => {
@@ -877,7 +886,7 @@ export default function OutreachPage() {
                         <div className="text-xs font-mono text-muted-foreground truncate">{task.identifier}</div>
                         <div className="flex gap-1" onClick={e => e.stopPropagation()}>
                           <Button variant="ghost" size="icon" className="h-8 w-8" title="Copy" disabled={!!actionInProgress} onClick={() => copyToClipboard(message)}><Copy className="h-3.5 w-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Open" disabled={!!actionInProgress} onClick={() => { copyToClipboard(message); if (link) window.open(link, "_blank", "noopener,noreferrer"); }}><ExternalLink className="h-3.5 w-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Open" disabled={!!actionInProgress} onClick={() => { copyToClipboard(message); if (link) openLink(link); }}><ExternalLink className="h-3.5 w-3.5" /></Button>
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50" title="Sent" disabled={!!actionInProgress} onClick={() => markSent(task)}>
                             {actionInProgress === `sent-${task.vendorId}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                           </Button>
@@ -916,7 +925,7 @@ export default function OutreachPage() {
                           </div>
                           <div className="flex gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
                             <Button variant="ghost" size="icon" className="h-7 w-7" title="Copy" disabled={!!actionInProgress} onClick={() => copyToClipboard(message)}><Copy className="h-3 w-3" /></Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Open" disabled={!!actionInProgress} onClick={() => { copyToClipboard(message); if (link) window.open(link, "_blank", "noopener,noreferrer"); }}><ExternalLink className="h-3 w-3" /></Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Open" disabled={!!actionInProgress} onClick={() => { copyToClipboard(message); if (link) openLink(link); }}><ExternalLink className="h-3 w-3" /></Button>
                             <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600" title="Sent" disabled={!!actionInProgress} onClick={() => markSent(task)}>
                               {actionInProgress === `sent-${task.vendorId}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                             </Button>
@@ -1052,7 +1061,7 @@ export default function OutreachPage() {
                           <div className="flex flex-wrap gap-2">
                             {task.channel === "email" && <Button size="sm" variant="outline" onClick={() => copyToClipboard(subject)}><Copy className="h-3 w-3 mr-1.5" /> Copy Subject</Button>}
                             <Button size="sm" variant="outline" onClick={() => copyToClipboard(message)}><Copy className="h-3 w-3 mr-1.5" /> Copy Message</Button>
-                            <Button size="sm" variant="outline" onClick={() => { copyToClipboard(message); if (link) window.open(link, "_blank", "noopener,noreferrer"); }}><ExternalLink className="h-3 w-3 mr-1.5" /> Open {CH_LABEL[task.channel]}</Button>
+                            <Button size="sm" variant="outline" onClick={() => { copyToClipboard(message); if (link) openLink(link); }}><ExternalLink className="h-3 w-3 mr-1.5" /> Open {CH_LABEL[task.channel]}</Button>
                             <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" disabled={!!actionInProgress} onClick={() => markSent(task)}>
                               {actionInProgress === `sent-${task.vendorId}` ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <CheckCircle2 className="h-3 w-3 mr-1.5" />} Mark Sent
                             </Button>
