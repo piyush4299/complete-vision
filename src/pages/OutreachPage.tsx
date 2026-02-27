@@ -311,18 +311,11 @@ export default function OutreachPage() {
     try {
       const vendor = vendorMap.get(task.vendorId);
       if (!vendor) return;
-      const statusField = task.channel === "instagram" ? "insta_status" : task.channel === "whatsapp" ? "whatsapp_status" : "email_status";
-      await supabase.from("vendors").update({ [statusField]: "skipped" }).eq("id", vendor.id);
+      // Only log the skip — don't change vendor status or advance sequence.
+      // The vendor will reappear in tomorrow's queue.
       await supabase.from("outreach_log").insert({ vendor_id: vendor.id, channel: task.channel, action: "skipped", user_id: currentUser?.id || null });
 
-      const seq = sequences.find(s => s.vendor_id === vendor.id && s.is_active);
-      if (seq) {
-        await supabase.from("vendor_sequences").update({
-          current_step: seq.current_step + 1,
-        }).eq("id", seq.id);
-      }
-
-      toast({ title: "Skipped", duration: 1200 });
+      toast({ title: "Skipped — will reappear tomorrow", duration: 1500 });
       setExpandedId(null);
       await fetchData();
     } finally {

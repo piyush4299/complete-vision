@@ -225,6 +225,12 @@ export function buildDailyPlan(
     (!userId || !l.user_id || l.user_id === userId)
   );
 
+  // Vendors skipped today should not reappear in today's queue
+  const skippedTodaySet = new Set<string>();
+  for (const l of todayLogs) {
+    if (l.action === "skipped") skippedTodaySet.add(`${l.vendor_id}:${l.channel}`);
+  }
+
   const doneToday = {
     instagram: mySentToday.filter(l => l.channel === "instagram").length,
     whatsapp:  mySentToday.filter(l => l.channel === "whatsapp").length,
@@ -326,31 +332,71 @@ export function buildDailyPlan(
       const currentStep = steps[seq.current_step];
       if (!currentStep || currentStep.channel === "exhausted") continue;
 
+      // Skip if this vendor+channel was skipped today
+      if (skippedTodaySet.has(`${v.id}:${currentStep.channel}`)) continue;
+
+      // If sequence was advanced to a followup step but the initial was
+      // never actually sent (status is "skipped"/"pending"), don't create
+      // a followup — can't follow up on an unsent message.
+      const chStatus = vendorChannelStatus(v, currentStep.channel);
+      if (currentStep.type === "followup" && chStatus !== "sent") continue;
+
       const activeSteps = steps.filter(s => s.channel !== "exhausted");
       const startDate = new Date(seq.started_at);
       const dueDate = new Date(startDate.getTime() + currentStep.day * 86400000);
       dueDate.setHours(0, 0, 0, 0);
 
       if (dueDate <= todayStart || dueDate.toDateString() === new Date().toDateString()) {
+        const ch = currentStep.channel as Channel;
         const isOverdue = dueDate < todayStart;
         const daysOverdue = isOverdue ? Math.floor((todayStart.getTime() - dueDate.getTime()) / 86400000) : 0;
 
-        allTasks.push({
-          vendorId: v.id,
-          vendorName: v.full_name || "Unknown",
-          category: v.category,
-          city: v.city,
-          channel: currentStep.channel as Channel,
-          type: currentStep.type as "initial" | "followup",
-          priority: scorePriority(currentStep.type as any, isOverdue, daysOverdue, v.category, uploadedDaysAgo, hasAll),
-          isOverdue,
-          daysOverdue,
-          identifier: getIdentifier(v, currentStep.channel as Channel),
-          sequenceLabel: SEQUENCE_LABELS[seq.sequence_type as SequenceType] || "Custom",
-          stepNumber: seq.current_step + 1,
-          totalSteps: activeSteps.length,
-          availableChannels,
-        });
+        if (remaining[ch] > 0) {
+          allTasks.push({
+            vendorId: v.id,
+            vendorName: v.full_name || "Unknown",
+            category: v.category,
+            city: v.city,
+            channel: ch,
+            type: currentStep.type as "initial" | "followup",
+            priority: scorePriority(currentStep.type as any, isOverdue, daysOverdue, v.category, uploadedDaysAgo, hasAll),
+            isOverdue,
+            daysOverdue,
+            identifier: getIdentifier(v, ch),
+            sequenceLabel: SEQUENCE_LABELS[seq.sequence_type as SequenceType] || "Custom",
+            stepNumber: seq.current_step + 1,
+            totalSteps: activeSteps.length,
+            availableChannels,
+          });
+        } else {
+          // Current step channel is budget-exhausted; look for an alternative
+          // initial step on a channel that still has budget.
+          for (let s = seq.current_step + 1; s < steps.length; s++) {
+            const alt = steps[s];
+            if (alt.channel === "exhausted") break;
+            if (alt.type !== "initial") continue;
+            const altCh = alt.channel as Channel;
+            if (remaining[altCh] > 0 && vendorHasChannel(v, altCh) && vendorChannelStatus(v, altCh) === "pending") {
+              allTasks.push({
+                vendorId: v.id,
+                vendorName: v.full_name || "Unknown",
+                category: v.category,
+                city: v.city,
+                channel: altCh,
+                type: "initial",
+                priority: scorePriority("initial", isOverdue, daysOverdue, v.category, uploadedDaysAgo, hasAll) - 5,
+                isOverdue,
+                daysOverdue,
+                identifier: getIdentifier(v, altCh),
+                sequenceLabel: SEQUENCE_LABELS[seq.sequence_type as SequenceType] || "Custom",
+                stepNumber: s + 1,
+                totalSteps: activeSteps.length,
+                availableChannels,
+              });
+              break;
+            }
+          }
+        }
       }
     } else {
       // ── Path B: No sequence — simulate one from channel statuses ──────
@@ -365,28 +411,40 @@ export function buildDailyPlan(
         const step = steps[i];
         if (step.channel === "exhausted") break;
         if (!vendorHasChannel(v, step.channel)) continue;
+        if (skippedTodaySet.has(`${v.id}:${step.channel}`)) continue;
 
         const status = vendorChannelStatus(v, step.channel);
         const contactedAt = vendorContactedAt(v, step.channel);
         const stepIdx = activeSteps.findIndex(s => s === step);
 
         if (step.type === "initial") {
-          if (status === "pending") {
-            // Check if all previous initial steps in this sequence are done
+          const needsInitial = status === "pending" || status === "skipped";
+          if (needsInitial) {
+            // Check if all previous initial steps are done OR their channel
+            // budget is exhausted for today (so we can skip ahead).
             const prevInitials = steps
               .slice(0, i)
               .filter(s => s.type === "initial" && s.channel !== "exhausted" && vendorHasChannel(v, s.channel));
 
-            const allPrevDone = prevInitials.every(s =>
-              vendorChannelStatus(v, s.channel) !== "pending"
-            );
+            const allPrevHandled = prevInitials.every(s => {
+              const prevStatus = vendorChannelStatus(v, s.channel);
+              if (prevStatus !== "pending" && prevStatus !== "skipped") return true;
+              return remaining[s.channel as Channel] <= 0;
+            });
 
-            if (!allPrevDone) continue;
+            if (!allPrevHandled) continue;
 
-            // Check timing gap: wait N days after the previous step was completed
+            // Skip channels whose budget is already exhausted for today
+            if (remaining[step.channel as Channel] <= 0) continue;
+
+            // Check timing gap: wait N days after the last actually-completed step
             let readyToSend = true;
-            if (prevInitials.length > 0) {
-              const lastPrev = prevInitials[prevInitials.length - 1];
+            const completedPrev = prevInitials.filter(s => {
+              const ps = vendorChannelStatus(v, s.channel);
+              return ps !== "pending" && ps !== "skipped";
+            });
+            if (completedPrev.length > 0) {
+              const lastPrev = completedPrev[completedPrev.length - 1];
               const lastContactedAt = vendorContactedAt(v, lastPrev.channel);
               if (lastContactedAt) {
                 const dayGap = step.day - lastPrev.day;
@@ -415,7 +473,6 @@ export function buildDailyPlan(
               taskAdded = true;
             }
           }
-          // status is "sent"/"followed_up"/"skipped" → step done, move on
         } else if (step.type === "followup") {
           if (status === "sent" && contactedAt) {
             const contactDate = new Date(contactedAt);
@@ -445,7 +502,6 @@ export function buildDailyPlan(
               taskAdded = true;
             }
           }
-          // status is "followed_up"/"skipped" → step done, move on
         }
       }
     }
@@ -455,9 +511,18 @@ export function buildDailyPlan(
 
   allTasks.sort((a, b) => b.priority - a.priority);
 
-  // Round-robin: each agent gets every Nth task from the priority-sorted list
+  // Stable assignment: hash vendor ID to decide which agent owns each task.
+  // This ensures the same vendor always goes to the same agent even when
+  // other vendors are added/removed from the list.
   const myTasks = agentCount > 1
-    ? allTasks.filter((_, i) => i % agentCount === agentIndex)
+    ? allTasks.filter(task => {
+        let h = 0;
+        for (let i = 0; i < task.vendorId.length; i++) {
+          h = ((h << 5) - h) + task.vendorId.charCodeAt(i);
+          h |= 0;
+        }
+        return Math.abs(h) % agentCount === agentIndex;
+      })
     : allTasks;
 
   const budgetRemaining = { ...remaining };
@@ -467,6 +532,19 @@ export function buildDailyPlan(
     if (budgetRemaining[task.channel] > 0) {
       plannedTasks.push(task);
       budgetRemaining[task.channel]--;
+    }
+  }
+
+  // Cap targets to what's actually achievable (don't show 0/8 when only 1 vendor exists)
+  for (const ch of ["instagram", "whatsapp", "email"] as Channel[]) {
+    const inQueue = plannedTasks.filter(t => t.channel === ch).length;
+    const achievable = progress[ch].doneToday + inQueue;
+    if (achievable < progress[ch].target) {
+      progress[ch].target = achievable;
+      progress[ch].remaining = inQueue;
+      progress[ch].pct = achievable > 0
+        ? Math.round((progress[ch].doneToday / achievable) * 100)
+        : 100;
     }
   }
 
@@ -551,7 +629,7 @@ export function buildDailyPlan(
 
   const totalTasks = plannedTasks.length;
   const totalEstimatedMinutes = sessions.reduce((s, sess) => s + sess.estimatedMinutes, 0);
-  const totalTarget = myInstaTarget + myWaTarget + myEmailTarget;
+  const totalTarget = progress.instagram.target + progress.whatsapp.target + progress.email.target;
   const overallPct = totalTarget > 0 ? Math.round((doneToday.total / totalTarget) * 100) : 0;
 
   return {

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { CATEGORIES } from "@/lib/vendor-utils";
 import { StatusBadge } from "@/components/StatusBadge";
+import { useAuth } from "@/contexts/AuthContext";
 import { buildDailyPlan, type DailyPlan, type Session, type ChannelProgress } from "@/lib/daily-plan-engine";
 
 function getGreeting(): string {
@@ -134,20 +135,24 @@ export default function TodayPage() {
   const [sequences, setSequences] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [settings, setSettings] = useState<Record<string, string>>({});
+  const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
 
   useEffect(() => {
     const load = async () => {
-      const [{ data: v }, { data: seq }, { data: l }, { data: s }] = await Promise.all([
+      const [{ data: v }, { data: seq }, { data: l }, { data: s }, { data: tm }] = await Promise.all([
         supabase.from("vendors").select("*"),
         supabase.from("vendor_sequences").select("*"),
         supabase.from("outreach_log").select("*"),
         supabase.from("settings").select("*"),
+        supabase.from("team_members").select("*").eq("is_active", true),
       ]);
       setVendors(v ?? []);
       setSequences(seq ?? []);
       setLogs(l ?? []);
+      setTeamMembers(tm ?? []);
       const map: Record<string, string> = {};
       for (const row of s ?? []) map[row.key] = row.value;
       setSettings(map);
@@ -157,9 +162,12 @@ export default function TodayPage() {
   }, []);
 
   const plan: DailyPlan | null = useMemo(() => {
-    if (loading) return null;
-    return buildDailyPlan(vendors, sequences, logs, settings);
-  }, [vendors, sequences, logs, settings, loading]);
+    if (loading || !currentUser) return null;
+    const sortedAgents = [...teamMembers].sort((a, b) => a.id.localeCompare(b.id));
+    const agentIndex = sortedAgents.findIndex(a => a.id === currentUser.id);
+    const idx = agentIndex >= 0 ? agentIndex : 0;
+    return buildDailyPlan(vendors, sequences, logs, settings, currentUser.id, sortedAgents.length || 1, idx);
+  }, [vendors, sequences, logs, settings, loading, currentUser, teamMembers]);
 
   if (loading || !plan) {
     return (
@@ -169,7 +177,7 @@ export default function TodayPage() {
     );
   }
 
-  const adminName = settings.admin_name || "Ankit";
+  const adminName = currentUser?.name || settings.admin_name || "there";
   const todayDate = new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
 
   const handleStartSession = (session: Session) => {
