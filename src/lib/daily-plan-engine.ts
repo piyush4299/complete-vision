@@ -532,17 +532,10 @@ export function buildDailyPlan(
     }
   }
 
-  // Cap targets to what's actually achievable (don't show 0/8 when only 1 vendor exists)
+  // "remaining" reflects actual tasks in queue (not just budget headroom)
   for (const ch of ["instagram", "whatsapp", "email"] as Channel[]) {
     const inQueue = plannedTasks.filter(t => t.channel === ch).length;
-    const achievable = progress[ch].doneToday + inQueue;
-    if (achievable < progress[ch].target) {
-      progress[ch].target = achievable;
-      progress[ch].remaining = inQueue;
-      progress[ch].pct = achievable > 0
-        ? Math.round((progress[ch].doneToday / achievable) * 100)
-        : 100;
-    }
+    progress[ch].remaining = Math.min(progress[ch].remaining, inQueue);
   }
 
   // ── Step 5: Group into sessions ──────────────────────────────────────────
@@ -626,7 +619,7 @@ export function buildDailyPlan(
 
   const totalTasks = plannedTasks.length;
   const totalEstimatedMinutes = sessions.reduce((s, sess) => s + sess.estimatedMinutes, 0);
-  const totalTarget = progress.instagram.target + progress.whatsapp.target + progress.email.target;
+  const totalTarget = myInstaTarget + myWaTarget + myEmailTarget;
   const overallPct = totalTarget > 0 ? Math.round((doneToday.total / totalTarget) * 100) : 0;
 
   return {
