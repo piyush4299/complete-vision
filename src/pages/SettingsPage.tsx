@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,19 +8,95 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import { Save, RefreshCw, Loader2, Plus, Trash2, UserCheck, UserX, Copy } from "lucide-react";
+import { Save, RefreshCw, Loader2, Plus, Trash2, UserCheck, UserX, Copy, Check, CloudOff } from "lucide-react";
 import { generateClaimLink } from "@/lib/vendor-utils";
+
+// ─── Auto-save hook ──────────────────────────────────────────────────────────
+
+type SaveStatus = "idle" | "saving" | "saved" | "error";
+
+function useAutoSave(delay: number = 800) {
+  const [status, setStatus] = useState<Record<string, SaveStatus>>({});
+  const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const savedTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  const scheduleSave = useCallback((key: string, value: string) => {
+    // Clear any pending timer for this key
+    if (timers.current[key]) clearTimeout(timers.current[key]);
+    if (savedTimers.current[key]) clearTimeout(savedTimers.current[key]);
+
+    setStatus(prev => ({ ...prev, [key]: "saving" }));
+
+    timers.current[key] = setTimeout(async () => {
+      try {
+        const now = new Date().toISOString();
+        if (value === "") {
+          // Delete the setting if value is empty
+          await supabase.from("settings").delete().eq("key", key);
+        } else {
+          await supabase.from("settings").upsert(
+            { key, value, updated_at: now },
+            { onConflict: "key" }
+          );
+        }
+        setStatus(prev => ({ ...prev, [key]: "saved" }));
+        // Clear "saved" indicator after 2s
+        savedTimers.current[key] = setTimeout(() => {
+          setStatus(prev => ({ ...prev, [key]: "idle" }));
+        }, 2000);
+      } catch {
+        setStatus(prev => ({ ...prev, [key]: "error" }));
+      }
+    }, delay);
+  }, [delay]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(timers.current).forEach(clearTimeout);
+      Object.values(savedTimers.current).forEach(clearTimeout);
+    };
+  }, []);
+
+  return { status, scheduleSave };
+}
+
+function SaveIndicator({ status }: { status: SaveStatus }) {
+  if (status === "saving") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground animate-pulse">
+        <Loader2 className="h-3 w-3 animate-spin" />
+      </span>
+    );
+  }
+  if (status === "saved") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 animate-fade-in">
+        <Check className="h-3 w-3" /> Saved
+      </span>
+    );
+  }
+  if (status === "error") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] text-destructive">
+        <CloudOff className="h-3 w-3" /> Error
+      </span>
+    );
+  }
+  return null;
+}
+
+// ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [allTemplates, setAllTemplates] = useState<any[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [savingSection, setSavingSection] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState<string | null>(null);
   const [initializingTemplates, setInitializingTemplates] = useState(false);
   const { toast } = useToast();
   const { currentUser } = useAuth();
+  const { status: saveStatus, scheduleSave } = useAutoSave(800);
 
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [showAddAgent, setShowAddAgent] = useState(false);
@@ -69,32 +145,7 @@ export default function SettingsPage() {
 
   const updateSetting = (key: string, value: string) => {
     setSettings(prev => ({ ...prev, [key]: value }));
-  };
-
-  const saveSectionSettings = async (sectionTitle: string, keys: string[]) => {
-    setSavingSection(sectionTitle);
-    const now = new Date().toISOString();
-    const rows = keys
-      .filter(key => settings[key] !== undefined && settings[key] !== "")
-      .map(key => ({ key, value: settings[key], updated_at: now }));
-    if (rows.length > 0) {
-      await supabase.from("settings").upsert(rows as any[], { onConflict: "key" });
-    }
-    toast({ title: `${sectionTitle.replace(/^[^\w]+/, "").trim()} saved!`, duration: 1500 });
-    setSavingSection(null);
-  };
-
-  const saveAllSettings = async () => {
-    setSaving(true);
-    const now = new Date().toISOString();
-    const rows = Object.entries(settings)
-      .filter(([, value]) => value !== undefined && value !== "")
-      .map(([key, value]) => ({ key, value, updated_at: now }));
-    if (rows.length > 0) {
-      await supabase.from("settings").upsert(rows as any[], { onConflict: "key" });
-    }
-    toast({ title: "All settings saved!" });
-    setSaving(false);
+    scheduleSave(key, value);
   };
 
   const regenerateAllClaimLinks = async () => {
@@ -260,72 +311,58 @@ export default function SettingsPage() {
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <h1 className="text-2xl font-bold tracking-tight">⚙️ {isAdmin ? "Settings" : "My Settings"}</h1>
-        {isAdmin && (
-          <Button onClick={saveAllSettings} disabled={saving} className="w-full sm:w-auto">
-            <Save className="h-4 w-4 mr-1" /> {saving ? "Saving..." : "Save All Settings"}
-          </Button>
-        )}
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">⚙️ {isAdmin ? "Settings" : "My Settings"}</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Changes are saved automatically as you type</p>
+        </div>
       </div>
 
       {/* Settings Sections */}
-      {settingsConfig.map(section => {
-        const sectionKeys = section.items.map((item: any) => item.key);
-        const isSavingThis = savingSection === section.title;
-        return (
-          <Card key={section.title}>
-            <CardHeader className="pb-2">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <CardTitle className="text-base">{section.title}</CardTitle>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => saveSectionSettings(section.title, sectionKeys)}
-                  disabled={isSavingThis}
-                  className="w-full sm:w-auto shrink-0"
-                >
-                  <Save className="h-3.5 w-3.5 mr-1" /> {isSavingThis ? "Saving..." : "Save"}
+      {settingsConfig.map(section => (
+        <Card key={section.title}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">{section.title}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {section.items.map((item: any) => (
+              <div key={item.key} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                <Label className="text-sm w-full sm:w-64 sm:shrink-0 flex items-center gap-2">
+                  {item.label}
+                  <SaveIndicator status={saveStatus[item.key] || "idle"} />
+                </Label>
+                {item.type === "select" ? (
+                  <Select value={settings[item.key] || item.options[0]} onValueChange={v => updateSetting(item.key, v)}>
+                    <SelectTrigger className="w-full sm:w-64"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {(item.options as string[]).map((opt: string, i: number) => (
+                        <SelectItem key={opt} value={opt}>{item.optionLabels?.[i] || opt}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    type={item.type === "date" ? "date" : item.type === "text" ? "text" : "number"}
+                    value={settings[item.key] || ""}
+                    onChange={e => updateSetting(item.key, e.target.value)}
+                    className="w-full sm:w-48"
+                  />
+                )}
+              </div>
+            ))}
+            {section.title.includes("Claim Link") && (
+              <div className="pt-2 border-t">
+                <p className="text-xs text-muted-foreground mb-2">
+                  After changing the base URL, click below to update all existing vendor claim links.
+                </p>
+                <Button size="sm" variant="outline" onClick={regenerateAllClaimLinks} disabled={regenerating}>
+                  <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${regenerating ? "animate-spin" : ""}`} />
+                  {regenerating ? "Regenerating..." : "Regenerate All Claim Links & Messages"}
                 </Button>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {section.items.map((item: any) => (
-                <div key={item.key} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-                  <Label className="text-sm w-full sm:w-64 sm:shrink-0">{item.label}</Label>
-                  {item.type === "select" ? (
-                    <Select value={settings[item.key] || item.options[0]} onValueChange={v => updateSetting(item.key, v)}>
-                      <SelectTrigger className="w-full sm:w-64"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {(item.options as string[]).map((opt: string, i: number) => (
-                          <SelectItem key={opt} value={opt}>{item.optionLabels?.[i] || opt}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input
-                      type={item.type === "date" ? "date" : item.type === "text" ? "text" : "number"}
-                      value={settings[item.key] || ""}
-                      onChange={e => updateSetting(item.key, e.target.value)}
-                      className="w-full sm:w-48"
-                    />
-                  )}
-                </div>
-              ))}
-              {section.title.includes("Claim Link") && (
-                <div className="pt-2 border-t">
-                  <p className="text-xs text-muted-foreground mb-2">
-                    After changing the base URL, click below to update all existing vendor claim links and regenerate their messages.
-                  </p>
-                  <Button size="sm" variant="outline" onClick={regenerateAllClaimLinks} disabled={regenerating}>
-                    <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${regenerating ? "animate-spin" : ""}`} />
-                    {regenerating ? "Regenerating..." : "Regenerate All Claim Links & Messages"}
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        );
-      })}
+            )}
+          </CardContent>
+        </Card>
+      ))}
 
       {/* Team Members (admin only) */}
       {isAdmin && (
@@ -468,7 +505,7 @@ export default function SettingsPage() {
                 </p>
                 <Button size="sm" variant="outline" onClick={() => saveTemplate(t)} disabled={!!savingTemplate} className="w-full sm:w-auto shrink-0">
                   {savingTemplate === t.id ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1" />}
-                  {savingTemplate === t.id ? "Updating..." : "Save"}
+                  {savingTemplate === t.id ? "Saving..." : "Save Template"}
                 </Button>
               </div>
               {t.channel === "email" && (

@@ -12,6 +12,7 @@ import {
   Copy, ExternalLink, CheckCircle2, SkipForward, StopCircle, Send,
   Pause, Play, Trash2, ChevronDown, ChevronRight, Instagram, Phone,
   Mail, Clock, Zap, Undo2, Link2, Check, Loader2, Pencil, Save, X, Globe,
+  AlertTriangle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -122,9 +123,9 @@ export default function OutreachPage() {
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [activeTab, setActiveTab] = useState<"queue" | "done">("queue");
+  const [activeTab, setActiveTab] = useState<"queue" | "attention" | "done">("queue");
   const [channelFilter, setChannelFilter] = useState<"all" | Channel>("all");
-  const [typeFilter, setTypeFilter] = useState<"all" | "overdue" | "followup" | "initial">("all");
+  const [typeFilter, setTypeFilter] = useState<"all" | "followup" | "initial">("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const [sessionActive, setSessionActive] = useState(false);
@@ -178,17 +179,22 @@ export default function OutreachPage() {
     const ch = searchParams.get("channel");
     const type = searchParams.get("type");
     if (ch && ["instagram", "whatsapp", "email"].includes(ch)) setChannelFilter(ch as Channel);
-    if (type === "overdue") setTypeFilter("overdue");
+    if (type === "overdue") setActiveTab("attention");
     else if (type === "followup") setTypeFilter("followup");
     else if (type === "outreach") setTypeFilter("initial");
   }, [searchParams]);
 
   const plan: DailyPlan | null = useMemo(() => {
     if (loading || !currentUser) return null;
+    // Wait until team members are loaded to avoid everyone getting agentCount=1
+    if (teamMembers.length === 0) return null;
     const sortedAgents = [...teamMembers].sort((a, b) => a.id.localeCompare(b.id));
     const agentIndex = sortedAgents.findIndex(a => a.id === currentUser.id);
-    const idx = agentIndex >= 0 ? agentIndex : 0;
-    return buildDailyPlan(vendors, sequences, logs, settings, currentUser.id, sortedAgents.length || 1, idx);
+    // If current user isn't in the active team list, they still get a unique slot
+    // based on their ID hash to avoid overlap with real agents
+    const idx = agentIndex >= 0 ? agentIndex : sortedAgents.length;
+    const totalSlots = agentIndex >= 0 ? sortedAgents.length : sortedAgents.length + 1;
+    return buildDailyPlan(vendors, sequences, logs, settings, currentUser.id, totalSlots, idx);
   }, [vendors, sequences, logs, settings, loading, currentUser, teamMembers]);
 
   const vendorMap = useMemo(() => {
@@ -199,13 +205,21 @@ export default function OutreachPage() {
 
   const queueTasks = useMemo(() => {
     if (!plan) return [];
-    let tasks = plan.plannedTasks;
+    // Only show non-overdue items in Queue — overdue goes to "Attention Needed"
+    let tasks = plan.plannedTasks.filter(t => !t.isOverdue);
     if (channelFilter !== "all") tasks = tasks.filter(t => t.channel === channelFilter);
-    if (typeFilter === "overdue") tasks = tasks.filter(t => t.isOverdue);
-    else if (typeFilter === "followup") tasks = tasks.filter(t => t.type === "followup" && !t.isOverdue);
+    if (typeFilter === "followup") tasks = tasks.filter(t => t.type === "followup");
     else if (typeFilter === "initial") tasks = tasks.filter(t => t.type === "initial");
     return tasks;
   }, [plan, channelFilter, typeFilter]);
+
+  const attentionTasks = useMemo(() => {
+    if (!plan) return [];
+    // All overdue items go here
+    let tasks = plan.plannedTasks.filter(t => t.isOverdue);
+    if (channelFilter !== "all") tasks = tasks.filter(t => t.channel === channelFilter);
+    return tasks;
+  }, [plan, channelFilter]);
 
   const templateMap = useMemo(() => {
     // Prefer user-specific templates; fall back to global (user_id null) per channel:type
@@ -808,6 +822,16 @@ export default function OutreachPage() {
         <button onClick={() => setActiveTab("queue")} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${activeTab === "queue" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
           Queue ({queueTasks.length})
         </button>
+        <button onClick={() => setActiveTab("attention")} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${activeTab === "attention" ? "border-destructive text-destructive" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+          <span className="flex items-center gap-1.5">
+            Attention Needed
+            {attentionTasks.length > 0 && (
+              <span className="inline-flex items-center justify-center rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-semibold text-destructive-foreground min-w-[18px]">
+                {attentionTasks.length}
+              </span>
+            )}
+          </span>
+        </button>
         <button onClick={() => setActiveTab("done")} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${activeTab === "done" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
           Done Today ({doneTodayList.length})
         </button>
@@ -824,9 +848,9 @@ export default function OutreachPage() {
               </button>
             ))}
             <div className="w-px h-6 bg-border self-center mx-1 shrink-0" />
-            {(["all", "overdue", "followup", "initial"] as const).map(f => (
+            {(["all", "followup", "initial"] as const).map(f => (
               <button key={f} onClick={() => setTypeFilter(f)} className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${typeFilter === f ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
-                {f === "all" ? "All Types" : f === "overdue" ? "Overdue" : f === "followup" ? "Follow-ups" : "New Outreach"}
+                {f === "all" ? "All Types" : f === "followup" ? "Follow-ups" : "New Outreach"}
               </button>
             ))}
           </div>
@@ -1071,6 +1095,157 @@ export default function OutreachPage() {
                             <Button size="sm" variant="ghost" className="text-gray-400 hover:text-red-500 hover:bg-red-50" disabled={!!actionInProgress} onClick={async () => { if (actionInProgress) return; setActionInProgress(`remove-${vendor.id}`); try { await supabase.from("vendors").update({ overall_status: "invalid" }).eq("id", vendor.id); toast({ title: "Vendor removed", duration: 1500 }); setExpandedId(null); fetchData(); window.dispatchEvent(new Event("vendors-updated")); } finally { setActionInProgress(null); } }} title="Not a valid vendor"><Trash2 className="h-3 w-3 mr-1.5" /> Remove</Button>
                           </div>
 
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── Attention Needed Tab ──────────────────────────────────────── */}
+      {activeTab === "attention" && (
+        <div className="space-y-3">
+          {/* Info banner */}
+          <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 flex items-start gap-3">
+            <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+            <p className="text-xs text-muted-foreground">
+              These vendors are <strong>past their follow-up date</strong> and haven't been contacted yet. Handle them or skip/remove to keep your queue clean.
+            </p>
+          </div>
+
+          {/* Channel filter for attention tab */}
+          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
+            {(["all", "instagram", "whatsapp", "email"] as const).map(f => (
+              <button key={f} onClick={() => setChannelFilter(f)} className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${channelFilter === f ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
+                {f === "all" ? "All Channels" : CH_LABEL[f]}
+              </button>
+            ))}
+          </div>
+
+          {attentionTasks.length === 0 ? (
+            <Card><CardContent className="py-10 text-center">
+              <CheckCircle2 className="h-10 w-10 text-emerald-300 mx-auto mb-3" />
+              <p className="font-medium text-muted-foreground">No overdue items needing attention</p>
+              <p className="text-xs text-muted-foreground mt-1">All tasks are on schedule.</p>
+            </CardContent></Card>
+          ) : (
+            <div className="space-y-2">
+              {attentionTasks.map(task => {
+                const vendor = vendorMap.get(task.vendorId);
+                if (!vendor) return null;
+                const isExpanded = expandedId === `attn-${task.vendorId}`;
+                const message = getVendorMessage(vendor, task.channel, task.type === "followup");
+                const subject = task.channel === "email" ? getVendorSubject(vendor, task.type === "followup") : "";
+                const link = getActionLink(vendor, task.channel, message, subject);
+
+                return (
+                  <div key={task.vendorId} className="rounded-xl border border-red-200 bg-red-50/30 transition-all hover:shadow-sm">
+                    {/* Row */}
+                    <div className="px-3 sm:px-4 py-3 cursor-pointer" onClick={() => setExpandedId(isExpanded ? null : `attn-${task.vendorId}`)}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-2 min-w-0 flex-1">
+                          <div className="text-muted-foreground mt-0.5 shrink-0">
+                            {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-semibold text-sm">{task.vendorName}</p>
+                              <ChannelPill channel={task.channel} />
+                              <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                                +{task.daysOverdue}d overdue
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground mt-0.5">
+                              {CATEGORIES.find(c => c.key === task.category)?.label} · {task.city}
+                              {task.sequenceLabel && ` · ${task.sequenceLabel} · Step ${task.stepNumber}/${task.totalSteps}`}
+                            </p>
+                            <p className="text-[11px] font-mono text-muted-foreground mt-0.5">{task.identifier}</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Copy" disabled={!!actionInProgress} onClick={() => copyToClipboard(message)}><Copy className="h-3.5 w-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Open" disabled={!!actionInProgress} onClick={() => { copyToClipboard(message); if (link) openLink(link); }}><ExternalLink className="h-3.5 w-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50" title="Sent" disabled={!!actionInProgress} onClick={() => markSent(task)}>
+                            {actionInProgress === `sent-${task.vendorId}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Skip" disabled={!!actionInProgress} onClick={() => markSkipped(task)}>
+                            {actionInProgress === `skip-${task.vendorId}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <SkipForward className="h-3.5 w-3.5" />}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Expanded */}
+                    {isExpanded && (
+                      <div className="px-4 pb-4 border-t border-red-200 animate-fade-in">
+                        <div className="max-w-2xl mx-auto space-y-3 pt-3">
+                          {/* Vendor channels */}
+                          <div className="flex flex-wrap gap-2 text-xs">
+                            {vendor.has_instagram && (
+                              <div className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 bg-background">
+                                <Instagram className="h-3 w-3 text-pink-500" /> <StatusBadge status={vendor.insta_status} />
+                                <span className="font-mono text-muted-foreground">@{vendor.username}</span>
+                              </div>
+                            )}
+                            {vendor.has_phone && (
+                              <div className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 bg-background">
+                                <Phone className="h-3 w-3 text-green-500" /> <StatusBadge status={vendor.whatsapp_status} />
+                                <span className="font-mono text-muted-foreground">{vendor.phone}</span>
+                              </div>
+                            )}
+                            {vendor.has_email && (
+                              <div className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 bg-background">
+                                <Mail className="h-3 w-3 text-blue-500" /> <StatusBadge status={vendor.email_status} />
+                                <span className="font-mono text-muted-foreground truncate max-w-[150px]">{vendor.email}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Claim Link */}
+                          {vendor.claim_link && (
+                            <div className="rounded-lg border bg-gradient-to-r from-emerald-50/60 to-transparent p-2.5 overflow-hidden">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                  <Link2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                                  <span className="text-[11px] font-semibold text-emerald-700 shrink-0">Claim Link</span>
+                                </div>
+                                <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-emerald-700 hover:bg-emerald-100" onClick={() => copyToClipboard(vendor.claim_link)}>
+                                  <Copy className="h-3 w-3 mr-1" /> Copy
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Email subject */}
+                          {task.channel === "email" && subject && (
+                            <div className="rounded-lg border p-2.5 bg-muted/30">
+                              <p className="text-[10px] font-medium text-muted-foreground mb-0.5">Subject</p>
+                              <p className="text-xs">{subject}</p>
+                            </div>
+                          )}
+
+                          {/* Message */}
+                          <div className="rounded-lg border p-3 bg-muted/30 overflow-hidden">
+                            <p className="text-xs leading-relaxed whitespace-pre-wrap break-all">{message}</p>
+                          </div>
+
+                          {/* Actions */}
+                          <div className="flex flex-wrap gap-2">
+                            {task.channel === "email" && subject && <Button size="sm" variant="outline" onClick={() => copyToClipboard(subject)}><Copy className="h-3 w-3 mr-1.5" /> Copy Subject</Button>}
+                            <Button size="sm" variant="outline" onClick={() => copyToClipboard(message)}><Copy className="h-3 w-3 mr-1.5" /> Copy Message</Button>
+                            <Button size="sm" variant="outline" onClick={() => { copyToClipboard(message); if (link) openLink(link); }}><ExternalLink className="h-3 w-3 mr-1.5" /> Open {CH_LABEL[task.channel]}</Button>
+                            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" disabled={!!actionInProgress} onClick={() => markSent(task)}>
+                              {actionInProgress === `sent-${task.vendorId}` ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <CheckCircle2 className="h-3 w-3 mr-1.5" />} Mark Sent
+                            </Button>
+                            <Button size="sm" variant="secondary" disabled={!!actionInProgress} onClick={() => markSkipped(task)}>
+                              {actionInProgress === `skip-${task.vendorId}` ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <SkipForward className="h-3 w-3 mr-1.5" />} Skip
+                            </Button>
+                            <Button size="sm" variant="ghost" className="text-gray-400 hover:text-red-500 hover:bg-red-50" disabled={!!actionInProgress} onClick={async () => { if (actionInProgress) return; setActionInProgress(`remove-${vendor.id}`); try { await supabase.from("vendors").update({ overall_status: "invalid" }).eq("id", vendor.id); toast({ title: "Vendor removed", duration: 1500 }); setExpandedId(null); fetchData(); window.dispatchEvent(new Event("vendors-updated")); } finally { setActionInProgress(null); } }} title="Not a valid vendor"><Trash2 className="h-3 w-3 mr-1.5" /> Remove</Button>
+                          </div>
                         </div>
                       </div>
                     )}

@@ -511,14 +511,11 @@ export function buildDailyPlan(
   // Stable assignment: hash vendor ID to decide which agent owns each task.
   // This ensures the same vendor always goes to the same agent even when
   // other vendors are added/removed from the list.
+  // We hash the vendor ID (not the task) so that all tasks for a given vendor
+  // go to the same agent — no two agents will ever reach out to the same vendor.
   const myTasks = agentCount > 1
     ? allTasks.filter(task => {
-        let h = 0;
-        for (let i = 0; i < task.vendorId.length; i++) {
-          h = ((h << 5) - h) + task.vendorId.charCodeAt(i);
-          h |= 0;
-        }
-        return Math.abs(h) % agentCount === agentIndex;
+        return stableAgentHash(task.vendorId, agentCount) === agentIndex;
       })
     : allTasks;
 
@@ -641,4 +638,17 @@ function getIdentifier(v: any, ch: Channel): string {
   if (ch === "instagram") return v.username ? `@${v.username}` : "";
   if (ch === "whatsapp") return v.phone || "";
   return v.email || "";
+}
+
+/**
+ * Deterministic hash that maps a vendor ID to an agent slot.
+ * Uses djb2 — produces consistent results across sessions/devices.
+ */
+export function stableAgentHash(vendorId: string, agentCount: number): number {
+  if (agentCount <= 1) return 0;
+  let h = 5381;
+  for (let i = 0; i < vendorId.length; i++) {
+    h = ((h << 5) + h + vendorId.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h) % agentCount;
 }

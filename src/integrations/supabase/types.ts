@@ -238,6 +238,8 @@ export type Database = {
           has_email: boolean
           has_instagram: boolean
           has_phone: boolean
+          hot_lead_claimed_at: string | null
+          hot_lead_claimed_by: string | null
           id: string
           insta_contacted_at: string | null
           insta_message: string | null
@@ -274,6 +276,8 @@ export type Database = {
           has_email?: boolean
           has_instagram?: boolean
           has_phone?: boolean
+          hot_lead_claimed_at?: string | null
+          hot_lead_claimed_by?: string | null
           id?: string
           insta_contacted_at?: string | null
           insta_message?: string | null
@@ -310,6 +314,8 @@ export type Database = {
           has_email?: boolean
           has_instagram?: boolean
           has_phone?: boolean
+          hot_lead_claimed_at?: string | null
+          hot_lead_claimed_by?: string | null
           id?: string
           insta_contacted_at?: string | null
           insta_message?: string | null
