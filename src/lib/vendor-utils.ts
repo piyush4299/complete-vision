@@ -15,6 +15,7 @@ export const CATEGORIES = [
   { key: "caterer", label: "Caterer" },
   { key: "venue", label: "Venue" },
   { key: "dj", label: "DJ / Entertainment" },
+  { key: "event_planner", label: "Event Planner" },
   { key: "uncategorized", label: "Uncategorized" },
 ] as const;
 
@@ -24,7 +25,7 @@ export const CITIES = [
 
 // --- Column type detection ---
 
-export type ColumnType = "instagram" | "phone" | "email" | "name" | "category" | "city" | "website" | "ignore";
+export type ColumnType = "instagram" | "phone" | "email" | "name" | "category" | "city" | "website" | "linkedin" | "ignore";
 
 const CATEGORY_RULES: { pattern: RegExp; category: string }[] = [
   // Photographer / Videographer — substring matches for compound usernames
@@ -69,9 +70,6 @@ const CATEGORY_RULES: { pattern: RegExp; category: string }[] = [
   { pattern: /flower/i, category: "decorator" },
   { pattern: /event\s*design/i, category: "decorator" },
   { pattern: /backdrop/i, category: "decorator" },
-  { pattern: /planner/i, category: "decorator" },
-  { pattern: /event\s*manage/i, category: "decorator" },
-  { pattern: /wedding\s*plan/i, category: "decorator" },
   { pattern: /\bevents?\b/i, category: "decorator" },
 
   // Caterer
@@ -116,6 +114,15 @@ const CATEGORY_RULES: { pattern: RegExp; category: string }[] = [
   { pattern: /\banchor\b/i, category: "dj" },
   { pattern: /\bemcee\b/i, category: "dj" },
   { pattern: /\bmc\b/i, category: "dj" },
+
+  // Event Planner
+  { pattern: /event\s*plann/i, category: "event_planner" },
+  { pattern: /wedding\s*plann/i, category: "event_planner" },
+  { pattern: /event\s*organiz/i, category: "event_planner" },
+  { pattern: /event\s*manage/i, category: "event_planner" },
+  { pattern: /party\s*plann/i, category: "event_planner" },
+  { pattern: /celebration/i, category: "event_planner" },
+  { pattern: /wedding\s*coordinator/i, category: "event_planner" },
 ];
 
 export function detectCategoryFromText(text: string): string | null {
@@ -180,11 +187,38 @@ export function isWebsite(val: string): boolean {
   return false;
 }
 
+export function isLinkedInHandle(val: string): boolean {
+  const trimmed = val.trim();
+  if (!trimmed || trimmed.length < 2) return false;
+  // LinkedIn URL patterns
+  if (/linkedin\.com\/(in|company|pub)\//i.test(trimmed)) return true;
+  // LinkedIn profile URL without protocol
+  if (/^(www\.)?linkedin\.com\/(in|company|pub)\//i.test(trimmed)) return true;
+  return false;
+}
+
+export function cleanLinkedInHandle(raw: string): string | null {
+  let u = raw.trim();
+  if (!u) return null;
+  // Extract from full URL
+  const match = u.match(/linkedin\.com\/(in|company|pub)\/([^/?#]+)/i);
+  if (match) return match[2].replace(/\/+$/, "").toLowerCase();
+  // If it's just a handle-like string (no URL), return as-is
+  if (/^[a-zA-Z0-9-]+$/.test(u) && u.length >= 2 && u.length <= 100) return u.toLowerCase();
+  return null;
+}
+
+export function getLinkedInProfileUrl(handle: string): string {
+  if (handle.startsWith("http")) return handle;
+  // Default to /in/ for personal profiles; company handles should be stored with full URL
+  return `https://www.linkedin.com/in/${handle}`;
+}
+
 export function detectColumnType(values: string[]): ColumnType {
   const sample = values.filter(Boolean).slice(0, 20);
   if (sample.length === 0) return "ignore";
   
-  let phoneCount = 0, instaCount = 0, emailCount = 0, nameCount = 0, websiteCount = 0;
+  let phoneCount = 0, instaCount = 0, emailCount = 0, nameCount = 0, websiteCount = 0, linkedinCount = 0;
   const citySet = new Set(CITIES.map(c => c.toLowerCase()));
   let cityCount = 0;
   let catCount = 0;
@@ -193,6 +227,7 @@ export function detectColumnType(values: string[]): ColumnType {
     if (isPhoneNumber(v)) phoneCount++;
     if (isEmail(v)) emailCount++;
     if (isWebsite(v)) websiteCount++;
+    if (isLinkedInHandle(v)) linkedinCount++;
     if (isInstagramHandle(v)) instaCount++;
     if (isNameLike(v)) nameCount++;
     if (citySet.has(v.toLowerCase().trim())) cityCount++;
@@ -203,6 +238,7 @@ export function detectColumnType(values: string[]): ColumnType {
   // Order matters: more specific types first
   if (emailCount >= threshold) return "email";
   if (phoneCount >= threshold) return "phone";
+  if (linkedinCount >= threshold) return "linkedin";
   if (cityCount >= threshold) return "city";
   if (catCount >= threshold) return "category";
   if (websiteCount >= threshold) return "website";
@@ -229,11 +265,14 @@ export function detectColumnTypes(headers: string[], rows: string[][]): { header
     if (["name", "business", "vendor"].some(p => headerLower.includes(p))) {
       return { header, detected: "name" as ColumnType };
     }
-    if (["city", "location", "place"].some(p => headerLower.includes(p))) {
+    if (["city", "location"].some(p => headerLower.includes(p)) && !headerLower.includes("place id")) {
       return { header, detected: "city" as ColumnType };
     }
     if (["category", "type", "service"].some(p => headerLower.includes(p))) {
       return { header, detected: "category" as ColumnType };
+    }
+    if (["linkedin", "linked_in", "li_profile", "li_url"].some(p => headerLower.includes(p))) {
+      return { header, detected: "linkedin" as ColumnType };
     }
     if (["website", "web", "site", "url", "link", "webpage"].some(p => headerLower.includes(p))) {
       return { header, detected: "website" as ColumnType };
@@ -335,7 +374,7 @@ export function regenerateVendorMessages(
   vendor: any,
   claimLink: string,
   idx: number = 0,
-): { insta_message?: string; whatsapp_message?: string; email_subject?: string; email_body?: string } {
+): { insta_message?: string; whatsapp_message?: string; email_subject?: string; email_body?: string; linkedin_message?: string } {
   const name = deriveFriendlyName(vendor.username, vendor.full_name, vendor.email);
   const cat = vendor.category;
   const city = vendor.city;
@@ -346,6 +385,7 @@ export function regenerateVendorMessages(
     result.email_subject = generateEmailSubject(name, cat, city, idx);
     result.email_body = generateEmailBody(name, cat, city, claimLink, idx);
   }
+  if (vendor.has_linkedin) result.linkedin_message = generateLinkedInMessage(name, cat, city, claimLink, idx);
   return result;
 }
 export interface SenderInfo {
@@ -432,6 +472,26 @@ export function generateMessage(name: string, categoryKey: string, city: string,
   return generateInstaMessage(name, categoryKey, city, claimLink, index);
 }
 
+// --- LinkedIn message templates ---
+
+const LINKEDIN_TEMPLATES = [
+  (n: string, cat: string, city: string, link: string) =>
+    `Hi ${n},\n\nI came across your ${cat} profile and wanted to reach out. We're building CartEvent — a platform connecting event vendors with customers looking to book services.\n\n75+ vendors joined in Bangalore within 15 days of launch.\n\nWe'd love to have you on board. It's completely free to join:\n${link}\n\nHappy to answer any questions!\n\n– Animesh, CartEvent`,
+  (n: string, cat: string, city: string, link: string) =>
+    `Hi ${n},\n\nWe're inviting select ${cat}s in ${city} to join CartEvent — a fast-growing event booking platform.\n\nYou've been selected based on your profile. 75+ vendors already onboard.\n\nActivate your free profile here:\n${link}\n\nLet me know if you have any questions!\n\n– Animesh`,
+];
+
+export function generateLinkedInMessage(name: string, categoryKey: string, city: string, claimLink: string, index: number): string {
+  const catLabel = CATEGORIES.find((c) => c.key === categoryKey)?.label.toLowerCase() ?? categoryKey;
+  return LINKEDIN_TEMPLATES[index % LINKEDIN_TEMPLATES.length](name, catLabel, city, claimLink);
+}
+
+export const FOLLOWUP_LINKEDIN = (n: string, cat: string, link: string) =>
+  `Hi ${n},\n\nJust following up on my earlier message. Would love to have you on CartEvent — it's free and vendors are already getting leads.\n\nYour activation link:\n${link}\n\nLet me know if you have any questions!`;
+
+export const FINAL_FOLLOWUP_LINKEDIN = (n: string, cat: string, city: string, link: string) =>
+  `Hi ${n},\n\nWe're closing this batch of ${cat} onboarding in ${city}. If you'd like to be included:\n\n${link}\n\nLast chance for priority visibility!\n\n– Animesh`;
+
 // --- Follow-up templates ---
 
 export const FOLLOWUP_INSTA = (n: string, cat: string, link: string) =>
@@ -460,6 +520,33 @@ export const FINAL_FOLLOWUP_EMAIL_BODY = (n: string, cat: string, city: string, 
 
 // Keep backward compat
 export const FOLLOWUP_TEMPLATE = FOLLOWUP_INSTA;
+
+// --- Instagram Comment Templates ---
+// Short, engaging comments that appreciate their work and subtly invite them to DM
+
+const INSTA_COMMENT_TEMPLATES = [
+  (n: string, cat: string) =>
+    `Amazing work! 🔥 We're building a platform for ${cat}s to get more bookings — would love to feature you. DM us if interested!`,
+  (n: string, cat: string) =>
+    `This is stunning! ✨ We help ${cat}s get discovered by clients looking to book. Sent you a DM — check it out!`,
+  (n: string, cat: string) =>
+    `Love this! 👏 We're onboarding top ${cat}s onto our booking platform. Dropped you a message — would love to have you!`,
+  (n: string, cat: string) =>
+    `Incredible work! 🙌 We connect ${cat}s with clients ready to book. Check your DMs — sent you something!`,
+  (n: string, cat: string) =>
+    `This is next level! 💯 We're curating the best ${cat}s for our platform. Sent you a DM with details!`,
+  (n: string, cat: string) =>
+    `Beautiful! 😍 We help ${cat}s like you get more visibility and bookings. Check your message requests!`,
+  (n: string, cat: string) =>
+    `Wow, this is gorgeous! 🌟 We're inviting select ${cat}s to join our booking platform — DM us or check your requests!`,
+  (n: string, cat: string) =>
+    `Such talent! 🎯 We're building something for ${cat}s to grow their business. Sent you a DM — take a look!`,
+];
+
+export function generateInstaComment(name: string, categoryKey: string, index: number): string {
+  const catLabel = CATEGORIES.find((c) => c.key === categoryKey)?.label.toLowerCase() ?? categoryKey;
+  return INSTA_COMMENT_TEMPLATES[index % INSTA_COMMENT_TEMPLATES.length](name, catLabel);
+}
 
 // --- CSV parsing ---
 

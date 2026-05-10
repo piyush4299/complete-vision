@@ -164,9 +164,14 @@ export default function TodayPage() {
   const plan: DailyPlan | null = useMemo(() => {
     if (loading || !currentUser) return null;
     const sortedAgents = [...teamMembers].sort((a, b) => a.id.localeCompare(b.id));
+    if (sortedAgents.length === 0) {
+      return buildDailyPlan(vendors, sequences, logs, settings, currentUser.id, 1, 0, [currentUser.id]);
+    }
     const agentIndex = sortedAgents.findIndex(a => a.id === currentUser.id);
-    const idx = agentIndex >= 0 ? agentIndex : 0;
-    return buildDailyPlan(vendors, sequences, logs, settings, currentUser.id, sortedAgents.length || 1, idx);
+    const idx = agentIndex >= 0 ? agentIndex : sortedAgents.length;
+    const totalSlots = agentIndex >= 0 ? sortedAgents.length : sortedAgents.length + 1;
+    const teamAgentIds = sortedAgents.map(a => a.id);
+    return buildDailyPlan(vendors, sequences, logs, settings, currentUser.id, totalSlots, idx, teamAgentIds);
   }, [vendors, sequences, logs, settings, loading, currentUser, teamMembers]);
 
   if (loading || !plan) {
@@ -336,13 +341,13 @@ export default function TodayPage() {
                 <StatBlock
                   label="Yesterday"
                   value={plan.yesterday.total}
-                  sub={`${plan.yesterday.insta} IG · ${plan.yesterday.wa} WA · ${plan.yesterday.email} Em`}
+                  sub={`${plan.yesterday.insta} IG · ${plan.yesterday.wa} WA · ${plan.yesterday.email} Em · ${plan.yesterday.linkedin} LI`}
                   icon={<TrendingUp className="h-4 w-4 text-muted-foreground" />}
                 />
                 <StatBlock
                   label="This Week"
                   value={plan.thisWeek.total}
-                  sub={`${plan.thisWeek.insta} IG · ${plan.thisWeek.wa} WA · ${plan.thisWeek.email} Em`}
+                  sub={`${plan.thisWeek.insta} IG · ${plan.thisWeek.wa} WA · ${plan.thisWeek.email} Em · ${plan.thisWeek.linkedin} LI`}
                   icon={<TrendingUp className="h-4 w-4 text-muted-foreground" />}
                 />
                 <StatBlock

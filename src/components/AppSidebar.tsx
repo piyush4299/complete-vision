@@ -1,4 +1,4 @@
-import { Upload, LayoutDashboard, Target, AlertCircle, Flame, Home, BarChart3, Settings } from "lucide-react";
+import { Upload, LayoutDashboard, Target, AlertCircle, Flame, Home, BarChart3, Settings, LogOut } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { useEffect, useState, useMemo } from "react";
@@ -13,6 +13,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarSeparator,
+  SidebarFooter,
 } from "@/components/ui/sidebar";
 
 const allMainItems = [
@@ -20,7 +21,7 @@ const allMainItems = [
   { title: "Upload", url: "/upload", icon: Upload, adminOnly: true },
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard, adminOnly: false },
   { title: "Analytics", url: "/analytics", icon: BarChart3, adminOnly: true },
-  { title: "Outreach", url: "/outreach", icon: Target, adminOnly: false },
+  { title: "My Tasks", url: "/outreach", icon: Target, adminOnly: false },
   { title: "Hot Leads", url: "/hot-leads", icon: Flame, adminOnly: false },
   { title: "Review Queue", url: "/review", icon: AlertCircle, adminOnly: true },
 ];
@@ -28,7 +29,7 @@ const allMainItems = [
 
 export function AppSidebar() {
   const location = useLocation();
-  const { currentUser } = useAuth();
+  const { currentUser, logout } = useAuth();
   const [reviewCount, setReviewCount] = useState(0);
   const [hotLeadsCount, setHotLeadsCount] = useState(0);
 
@@ -114,6 +115,27 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+
+      <SidebarFooter className="px-3 pb-4">
+        <div className="rounded-lg border border-sidebar-border bg-sidebar-accent/30 p-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-sidebar-primary text-sidebar-primary-foreground text-xs font-semibold">
+              {currentUser?.name?.charAt(0).toUpperCase() || "?"}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-sidebar-foreground truncate">{currentUser?.name}</p>
+              <p className="text-[10px] text-sidebar-foreground/60 truncate">{currentUser?.email}</p>
+            </div>
+            <button
+              onClick={logout}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+              title="Logout"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </SidebarFooter>
     </Sidebar>
   );
 }

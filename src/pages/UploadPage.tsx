@@ -10,6 +10,7 @@ import {
   CATEGORIES, CITIES, parseCSVContent, parseXLSXSheets, detectColumnTypes, cleanUsername, cleanPhone, cleanEmail,
   deriveFriendlyName, generateClaimLink, generateInstaMessage, generateWhatsAppMessage,
   generateEmailSubject, generateEmailBody, detectCategoryFromText,
+  cleanLinkedInHandle, getLinkedInProfileUrl, generateLinkedInMessage,
   type ColumnType, type ParsedSheet,
 } from "@/lib/vendor-utils";
 import { determineSequenceType, getSequenceSteps } from "@/lib/sequence-utils";
@@ -119,9 +120,11 @@ export default function UploadPage() {
     existingByUsername: Map<string, any>,
     existingByPhone: Map<string, any>,
     existingByEmail: Map<string, any>,
+    existingByLinkedin: Map<string, any>,
     seenUsernames: Set<string>,
     seenPhones: Set<string>,
     seenEmails: Set<string>,
+    seenLinkedins: Set<string>,
     globalIndex: number,
     claimLinkBase?: string,
   ) => {
@@ -142,18 +145,33 @@ export default function UploadPage() {
       const rawCat = colMap.category !== undefined ? row[colMap.category]?.toLowerCase().trim() ?? "" : "";
       const rawCity = colMap.city !== undefined ? row[colMap.city]?.trim() ?? "" : "";
       const rawWebsite = colMap.website !== undefined ? row[colMap.website]?.trim() ?? "" : "";
+      const rawLinkedin = colMap.linkedin !== undefined ? row[colMap.linkedin]?.trim() ?? "" : "";
 
       const username = cleanUsername(rawInsta);
       const phone = cleanPhone(rawPhone);
       const email = cleanEmail(rawEmail);
+      const linkedinHandle = rawLinkedin ? cleanLinkedInHandle(rawLinkedin) : null;
+      if (rawLinkedin) {
+        console.log("[Upload Debug] Row", i, "rawLinkedin:", rawLinkedin, "→ cleanedHandle:", linkedinHandle);
+      }
       const businessName = rawName.trim() || null;
 
-      if (!username && !phone && !email) { noContact++; continue; }
+      if (!username && !phone && !email && !linkedinHandle) { noContact++; continue; }
 
-      // Deduplicate within the current batch
-      if (username && seenUsernames.has(username)) { duplicates++; continue; }
-      if (phone && seenPhones.has(phone)) { duplicates++; continue; }
-      if (email && seenEmails.has(email)) { duplicates++; continue; }
+      // Deduplicate within the current batch (only skip if this is a true in-batch duplicate,
+      // not an existing DB vendor that might need enrichment)
+      const isInDb = (username && existingByUsername.has(username)) ||
+                     (phone && existingByPhone.has(phone)) ||
+                     (email && existingByEmail.has(email)) ||
+                     (linkedinHandle && existingByLinkedin.has(linkedinHandle));
+
+      if (!isInDb) {
+        // Pure batch dedup — skip if we've already seen this identifier in the current upload
+        if (username && seenUsernames.has(username)) { duplicates++; continue; }
+        if (phone && seenPhones.has(phone)) { duplicates++; continue; }
+        if (email && seenEmails.has(email)) { duplicates++; continue; }
+        if (linkedinHandle && seenLinkedins.has(linkedinHandle)) { duplicates++; continue; }
+      }
 
       let vendorCategory = category === "auto" ? null : (category || null);
       if (!vendorCategory && rawCat) {
@@ -172,12 +190,22 @@ export default function UploadPage() {
       let matchedVendor = username ? existingByUsername.get(username) : undefined;
       if (!matchedVendor && phone) matchedVendor = existingByPhone.get(phone);
       if (!matchedVendor && email) matchedVendor = existingByEmail.get(email);
+      if (!matchedVendor && linkedinHandle) matchedVendor = existingByLinkedin.get(linkedinHandle);
 
       if (matchedVendor) {
         const updates: Record<string, any> = {};
         if (!matchedVendor.phone && phone) { updates.phone = phone; updates.has_phone = true; enrichDetails.phone++; }
         if (!matchedVendor.email && email) { updates.email = email; updates.has_email = true; enrichDetails.email++; }
         if (!matchedVendor.username && username) { updates.username = username; updates.has_instagram = true; enrichDetails.instagram++; }
+        // LinkedIn: update if new data provided and different from existing
+        if (linkedinHandle && matchedVendor.linkedin_handle !== linkedinHandle) {
+          console.log("[Upload Debug] Enriching LinkedIn:", matchedVendor.full_name, "→", linkedinHandle, "(was:", matchedVendor.linkedin_handle, ")");
+          updates.linkedin_handle = linkedinHandle;
+          updates.linkedin_url = rawLinkedin.includes("linkedin.com") ? rawLinkedin.trim() : getLinkedInProfileUrl(linkedinHandle);
+          updates.has_linkedin = true;
+        } else if (linkedinHandle) {
+          console.log("[Upload Debug] LinkedIn SKIP:", matchedVendor.full_name, "already has:", matchedVendor.linkedin_handle, "=== new:", linkedinHandle);
+        }
       if (!matchedVendor.full_name && businessName) updates.full_name = businessName;
       if (!matchedVendor.website && rawWebsite) updates.website = rawWebsite;
 
@@ -196,12 +224,15 @@ export default function UploadPage() {
             updates.whatsapp_message = generateWhatsAppMessage(name, cat, ct, link, idx);
           }
           if (updates.has_email && !matchedVendor.email_body) {
-            updates.email_subject = generateEmailSubject(name, cat, idx);
+            updates.email_subject = generateEmailSubject(name, cat, ct, idx);
             updates.email_body = generateEmailBody(name, cat, ct, link);
           }
           if (updates.has_instagram && !matchedVendor.insta_message) {
             updates.insta_message = generateInstaMessage(name, cat, ct, link, idx);
             updates.profile_url = `https://www.instagram.com/${updates.username}/`;
+          }
+          if (updates.has_linkedin && !matchedVendor.linkedin_message) {
+            updates.linkedin_message = generateLinkedInMessage(name, cat, ct, link, idx);
           }
           updateOps.push({ id: matchedVendor.id, updates });
           enrichedCount++;
@@ -215,12 +246,15 @@ export default function UploadPage() {
       if (username) seenUsernames.add(username);
       if (phone) seenPhones.add(phone);
       if (email) seenEmails.add(email);
+      if (linkedinHandle) seenLinkedins.add(linkedinHandle);
 
       const name = deriveFriendlyName(username, businessName, email);
       const claimLink = generateClaimLink(businessName || name, phone, email, claimLinkBase);
       const hasInsta = !!username;
       const hasPhone = !!phone;
       const hasEmail = !!email;
+      const hasLinkedin = !!linkedinHandle;
+      const linkedinUrl = hasLinkedin ? (rawLinkedin.includes("linkedin.com") ? rawLinkedin.trim() : getLinkedInProfileUrl(linkedinHandle!)) : null;
 
       const vendor: any = {
         username, phone, email,
@@ -233,9 +267,13 @@ export default function UploadPage() {
         has_instagram: hasInsta,
         has_phone: hasPhone,
         has_email: hasEmail,
+        has_linkedin: hasLinkedin,
+        linkedin_handle: linkedinHandle,
+        linkedin_url: linkedinUrl,
         insta_status: "pending",
         whatsapp_status: "pending",
         email_status: "pending",
+        linkedin_status: "pending",
         overall_status: "pending",
         needs_review: false,
         status: "pending",
@@ -245,9 +283,10 @@ export default function UploadPage() {
       if (hasInsta) vendor.insta_message = generateInstaMessage(name, vendorCategory, vendorCity, claimLink, idx);
       if (hasPhone) vendor.whatsapp_message = generateWhatsAppMessage(name, vendorCategory, vendorCity, claimLink, idx);
       if (hasEmail) {
-        vendor.email_subject = generateEmailSubject(name, vendorCategory, idx);
+        vendor.email_subject = generateEmailSubject(name, vendorCategory, vendorCity, idx);
         vendor.email_body = generateEmailBody(name, vendorCategory, vendorCity, claimLink);
       }
+      if (hasLinkedin) vendor.linkedin_message = generateLinkedInMessage(name, vendorCategory, vendorCity, claimLink, idx);
       vendor.message = vendor.insta_message || vendor.whatsapp_message || "";
 
       if (hasInsta) instaEligible++;
@@ -277,11 +316,13 @@ export default function UploadPage() {
       const existingByUsername = new Map((existing ?? []).filter(v => v.username).map(v => [v.username!, v]));
       const existingByPhone = new Map((existing ?? []).filter(v => v.phone).map(v => [v.phone!, v]));
       const existingByEmail = new Map((existing ?? []).filter(v => v.email).map(v => [v.email!, v]));
+      const existingByLinkedin = new Map((existing ?? []).filter(v => v.linkedin_handle).map(v => [v.linkedin_handle!, v]));
 
       // Track seen identifiers across all sheets for dedup
       const seenUsernames = new Set(existingByUsername.keys());
       const seenPhones = new Set(existingByPhone.keys());
       const seenEmails = new Set(existingByEmail.keys());
+      const seenLinkedins = new Set(existingByLinkedin.keys());
 
       let totalDuplicates = 0, totalEnriched = 0, totalNewAdded = 0, totalRows = 0, totalNoContact = 0;
       const totalEnrichDetails = { phone: 0, email: 0, instagram: 0 };
@@ -303,7 +344,10 @@ export default function UploadPage() {
           colMap.instagram = 0;
         }
 
-        const result = processRows(sheet.dataRows, colMap, existingByUsername, existingByPhone, existingByEmail, seenUsernames, seenPhones, seenEmails, globalIndex, claimLinkBase);
+        console.log("[Upload Debug] colMap:", JSON.stringify(colMap));
+        console.log("[Upload Debug] columnMappings:", sheet.columnMappings.map(m => `${m.header} → ${m.detected}`).join(", "));
+
+        const result = processRows(sheet.dataRows, colMap, existingByUsername, existingByPhone, existingByEmail, existingByLinkedin, seenUsernames, seenPhones, seenEmails, seenLinkedins, globalIndex, claimLinkBase);
         totalDuplicates += result.duplicates;
         totalEnriched += result.enrichedCount;
         totalNewAdded += result.newAdded;
@@ -362,10 +406,10 @@ export default function UploadPage() {
 
         // Create sequences for newly inserted vendors
         if (actualInserted > 0 && uploadRecord) {
-          const { data: newVendors } = await supabase.from("vendors").select("id, has_instagram, has_phone, has_email").eq("upload_id", uploadRecord.id);
+          const { data: newVendors } = await supabase.from("vendors").select("id, has_instagram, has_phone, has_email, has_linkedin").eq("upload_id", uploadRecord.id);
           if (newVendors && newVendors.length > 0) {
             const sequences = newVendors.map(v => {
-              const seqType = determineSequenceType(v.has_instagram, v.has_phone, v.has_email);
+              const seqType = determineSequenceType(v.has_instagram, v.has_phone, v.has_email, v.has_linkedin);
               return {
                 vendor_id: v.id,
                 sequence_type: seqType,

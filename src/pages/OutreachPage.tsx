@@ -12,6 +12,7 @@ import {
   Copy, ExternalLink, CheckCircle2, SkipForward, StopCircle, Send,
   Pause, Play, Trash2, ChevronDown, ChevronRight, Instagram, Phone,
   Mail, Clock, Zap, Undo2, Link2, Check, Loader2, Pencil, Save, X, Globe,
+  AlertTriangle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -19,11 +20,16 @@ import {
   CATEGORIES,
   applyTemplatePlaceholders,
   stableVendorHash,
+  generateInstaComment,
   type SenderInfo,
 } from "@/lib/vendor-utils";
 import { buildDailyPlan, type DailyPlan, type DailyTask } from "@/lib/daily-plan-engine";
 
-type Channel = "instagram" | "whatsapp" | "email";
+type Channel = "instagram" | "whatsapp" | "email" | "linkedin";
+
+function taskRowKey(task: DailyTask): string {
+  return `${task.vendorId}-${task.channel}-${task.type}`;
+}
 
 interface PausedSession {
   id: string;
@@ -37,19 +43,21 @@ interface PausedSession {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const CH_LABEL: Record<string, string> = { instagram: "Instagram", whatsapp: "WhatsApp", email: "Email" };
-const CH_SHORT: Record<string, string> = { instagram: "IG", whatsapp: "WA", email: "Em" };
+const CH_LABEL: Record<string, string> = { instagram: "Instagram", whatsapp: "WhatsApp", email: "Email", linkedin: "LinkedIn" };
+const CH_SHORT: Record<string, string> = { instagram: "IG", whatsapp: "WA", email: "Em", linkedin: "LI" };
 
 function ChannelPill({ channel }: { channel: string }) {
   const colors: Record<string, string> = {
     instagram: "bg-pink-100 text-pink-700",
     whatsapp: "bg-green-100 text-green-700",
     email: "bg-blue-100 text-blue-700",
+    linkedin: "bg-sky-100 text-sky-700",
   };
   const icons: Record<string, React.ReactNode> = {
     instagram: <Instagram className="h-3 w-3" />,
     whatsapp: <Phone className="h-3 w-3" />,
     email: <Mail className="h-3 w-3" />,
+    linkedin: <Link2 className="h-3 w-3" />,
   };
   return (
     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${colors[channel] || ""}`}>
@@ -65,6 +73,7 @@ function SequenceStepper({ task, vendor }: { task: DailyTask; vendor: any }) {
     if (vendor.has_instagram) statusMap.instagram = vendor.insta_status || "pending";
     if (vendor.has_phone) statusMap.whatsapp = vendor.whatsapp_status || "pending";
     if (vendor.has_email) statusMap.email = vendor.email_status || "pending";
+    if (vendor.has_linkedin) statusMap.linkedin = vendor.linkedin_status || "pending";
   }
 
   return (
@@ -76,8 +85,8 @@ function SequenceStepper({ task, vendor }: { task: DailyTask; vendor: any }) {
 
         let dotClass = "h-2 w-2 rounded-full ";
         if (isCurrent) dotClass += "ring-2 ring-offset-1 ";
-        if (isDone) dotClass += ch === "instagram" ? "bg-pink-500" : ch === "whatsapp" ? "bg-green-500" : "bg-blue-500";
-        else if (isCurrent) dotClass += ch === "instagram" ? "bg-pink-400 ring-pink-300" : ch === "whatsapp" ? "bg-green-400 ring-green-300" : "bg-blue-400 ring-blue-300";
+        if (isDone) dotClass += ch === "instagram" ? "bg-pink-500" : ch === "whatsapp" ? "bg-green-500" : ch === "linkedin" ? "bg-sky-500" : "bg-blue-500";
+        else if (isCurrent) dotClass += ch === "instagram" ? "bg-pink-400 ring-pink-300" : ch === "whatsapp" ? "bg-green-400 ring-green-300" : ch === "linkedin" ? "bg-sky-400 ring-sky-300" : "bg-blue-400 ring-blue-300";
         else dotClass += "bg-gray-200";
 
         return (
@@ -95,6 +104,7 @@ function getActionLink(vendor: any, channel: Channel, message: string, subject: 
   if (channel === "instagram") return vendor.profile_url || "";
   if (channel === "whatsapp") return `https://wa.me/91${vendor.phone}?text=${encodeURIComponent(message)}`;
   if (channel === "email") return `mailto:${vendor.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
+  if (channel === "linkedin") return vendor.linkedin_url || `https://www.linkedin.com/in/${vendor.linkedin_handle || ""}`;
   return "";
 }
 
@@ -122,9 +132,9 @@ export default function OutreachPage() {
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [activeTab, setActiveTab] = useState<"queue" | "done">("queue");
+  const [activeTab, setActiveTab] = useState<"queue" | "attention" | "done">("queue");
   const [channelFilter, setChannelFilter] = useState<"all" | Channel>("all");
-  const [typeFilter, setTypeFilter] = useState<"all" | "overdue" | "followup" | "initial">("all");
+  const [typeFilter, setTypeFilter] = useState<"all" | "followup" | "initial">("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const [sessionActive, setSessionActive] = useState(false);
@@ -177,8 +187,8 @@ export default function OutreachPage() {
   useEffect(() => {
     const ch = searchParams.get("channel");
     const type = searchParams.get("type");
-    if (ch && ["instagram", "whatsapp", "email"].includes(ch)) setChannelFilter(ch as Channel);
-    if (type === "overdue") setTypeFilter("overdue");
+    if (ch && ["instagram", "whatsapp", "email", "linkedin"].includes(ch)) setChannelFilter(ch as Channel);
+    if (type === "overdue") setActiveTab("attention");
     else if (type === "followup") setTypeFilter("followup");
     else if (type === "outreach") setTypeFilter("initial");
   }, [searchParams]);
@@ -186,9 +196,18 @@ export default function OutreachPage() {
   const plan: DailyPlan | null = useMemo(() => {
     if (loading || !currentUser) return null;
     const sortedAgents = [...teamMembers].sort((a, b) => a.id.localeCompare(b.id));
+    // If the team query returns no rows (misconfigured DB, RLS, etc.), still build a plan
+    // for the logged-in user as a single agent instead of blocking on "Loading..." forever.
+    if (sortedAgents.length === 0) {
+      return buildDailyPlan(vendors, sequences, logs, settings, currentUser.id, 1, 0, [currentUser.id]);
+    }
     const agentIndex = sortedAgents.findIndex(a => a.id === currentUser.id);
-    const idx = agentIndex >= 0 ? agentIndex : 0;
-    return buildDailyPlan(vendors, sequences, logs, settings, currentUser.id, sortedAgents.length || 1, idx);
+    // If current user isn't in the active team list, they still get a unique slot
+    // based on their ID hash to avoid overlap with real agents
+    const idx = agentIndex >= 0 ? agentIndex : sortedAgents.length;
+    const totalSlots = agentIndex >= 0 ? sortedAgents.length : sortedAgents.length + 1;
+    const teamAgentIds = sortedAgents.map(a => a.id);
+    return buildDailyPlan(vendors, sequences, logs, settings, currentUser.id, totalSlots, idx, teamAgentIds);
   }, [vendors, sequences, logs, settings, loading, currentUser, teamMembers]);
 
   const vendorMap = useMemo(() => {
@@ -199,13 +218,21 @@ export default function OutreachPage() {
 
   const queueTasks = useMemo(() => {
     if (!plan) return [];
-    let tasks = plan.plannedTasks;
+    // Queue = on-time work: due today or not yet late (includes “new” outreach without a past-due date).
+    // Anything marked overdue by the planner (e.g. late sequence step) goes to Attention only.
+    let tasks = plan.plannedTasks.filter(t => !t.isOverdue);
     if (channelFilter !== "all") tasks = tasks.filter(t => t.channel === channelFilter);
-    if (typeFilter === "overdue") tasks = tasks.filter(t => t.isOverdue);
-    else if (typeFilter === "followup") tasks = tasks.filter(t => t.type === "followup" && !t.isOverdue);
+    if (typeFilter === "followup") tasks = tasks.filter(t => t.type === "followup");
     else if (typeFilter === "initial") tasks = tasks.filter(t => t.type === "initial");
     return tasks;
   }, [plan, channelFilter, typeFilter]);
+
+  const attentionTasks = useMemo(() => {
+    if (!plan) return [];
+    let tasks = plan.plannedTasks.filter(t => t.isOverdue);
+    if (channelFilter !== "all") tasks = tasks.filter(t => t.channel === channelFilter);
+    return tasks;
+  }, [plan, channelFilter]);
 
   const templateMap = useMemo(() => {
     // Prefer user-specific templates; fall back to global (user_id null) per channel:type
@@ -249,7 +276,27 @@ export default function OutreachPage() {
     if (channel === "instagram") return vendor.insta_message || "";
     if (channel === "whatsapp") return vendor.whatsapp_message || "";
     if (channel === "email") return vendor.email_body || "";
+    if (channel === "linkedin") return vendor.linkedin_message || "";
     return "";
+  }, [templateMap, senderInfo]);
+
+  const getVendorComment = useCallback((vendor: any): string => {
+    // Check for comment templates in the template map (from DB)
+    const commentTemplates = Object.entries(templateMap)
+      .filter(([key]) => key.startsWith("instagram:comment"))
+      .map(([, templates]) => templates)
+      .flat();
+    
+    if (commentTemplates.length > 0) {
+      const idx = stableVendorHash(vendor.id) % commentTemplates.length;
+      return applyTemplatePlaceholders(commentTemplates[idx].body, vendor, senderInfo);
+    }
+    
+    // Fallback to hardcoded templates
+    const name = vendor.full_name || vendor.username || "there";
+    const cat = vendor.category || "uncategorized";
+    const idx = stableVendorHash(vendor.id);
+    return generateInstaComment(name, cat, idx);
   }, [templateMap, senderInfo]);
 
   const getVendorSubject = useCallback((vendor: any, isFollowUp: boolean): string => {
@@ -279,12 +326,12 @@ export default function OutreachPage() {
 
   const markSent = async (task: DailyTask) => {
     if (actionInProgress) return;
-    setActionInProgress(`sent-${task.vendorId}`);
+    setActionInProgress(`sent-${taskRowKey(task)}`);
     try {
       const vendor = vendorMap.get(task.vendorId);
       if (!vendor) return;
-      const statusField = task.channel === "instagram" ? "insta_status" : task.channel === "whatsapp" ? "whatsapp_status" : "email_status";
-      const contactedField = task.channel === "instagram" ? "insta_contacted_at" : task.channel === "whatsapp" ? "whatsapp_contacted_at" : "email_contacted_at";
+      const statusField = task.channel === "instagram" ? "insta_status" : task.channel === "whatsapp" ? "whatsapp_status" : task.channel === "linkedin" ? "linkedin_status" : "email_status";
+      const contactedField = task.channel === "instagram" ? "insta_contacted_at" : task.channel === "whatsapp" ? "whatsapp_contacted_at" : task.channel === "linkedin" ? "linkedin_contacted_at" : "email_contacted_at";
       const newStatus = task.type === "followup" ? "followed_up" : "sent";
 
       await supabase.from("vendors").update({
@@ -299,11 +346,14 @@ export default function OutreachPage() {
         user_id: currentUser?.id || null,
       });
 
-      const seq = sequences.find(s => s.vendor_id === vendor.id && s.is_active);
-      if (seq) {
-        await supabase.from("vendor_sequences").update({
-          current_step: seq.current_step + 1,
-        }).eq("id", seq.id);
+      // Parallel mode only updates this channel; don't advance DB sequence (would desync other open channels).
+      if (settings.drip_sequence_enabled !== "false") {
+        const seq = sequences.find(s => s.vendor_id === vendor.id && s.is_active);
+        if (seq) {
+          await supabase.from("vendor_sequences").update({
+            current_step: seq.current_step + 1,
+          }).eq("id", seq.id);
+        }
       }
 
       toast({ title: `Marked as ${newStatus}`, duration: 1200 });
@@ -316,7 +366,7 @@ export default function OutreachPage() {
 
   const markSkipped = async (task: DailyTask) => {
     if (actionInProgress) return;
-    setActionInProgress(`skip-${task.vendorId}`);
+    setActionInProgress(`skip-${taskRowKey(task)}`);
     try {
       const vendor = vendorMap.get(task.vendorId);
       if (!vendor) return;
@@ -339,8 +389,8 @@ export default function OutreachPage() {
       const vendor = vendorMap.get(logEntry.vendor_id);
       if (!vendor) return;
       const ch = logEntry.channel as Channel;
-      const statusField = ch === "instagram" ? "insta_status" : ch === "whatsapp" ? "whatsapp_status" : "email_status";
-      const contactedField = ch === "instagram" ? "insta_contacted_at" : ch === "whatsapp" ? "whatsapp_contacted_at" : "email_contacted_at";
+      const statusField = ch === "instagram" ? "insta_status" : ch === "whatsapp" ? "whatsapp_status" : ch === "linkedin" ? "linkedin_status" : "email_status";
+      const contactedField = ch === "instagram" ? "insta_contacted_at" : ch === "whatsapp" ? "whatsapp_contacted_at" : ch === "linkedin" ? "linkedin_contacted_at" : "email_contacted_at";
 
       const revertTo = logEntry.action === "followed_up" ? "sent" : "pending";
       const updates: Record<string, any> = { [statusField]: revertTo };
@@ -702,6 +752,7 @@ export default function OutreachPage() {
             <div className="flex flex-wrap gap-2 sm:gap-3">
               {task.channel === "email" && <Button variant="secondary" size="sm" className="flex-1 sm:size-default" onClick={() => copyToClipboard(subject)}><Copy className="h-3.5 w-3.5 mr-1.5" /> Subject</Button>}
               <Button variant="secondary" size="sm" className="flex-1 sm:size-default" onClick={() => copyToClipboard(message)}><Copy className="h-3.5 w-3.5 mr-1.5" /> Message</Button>
+              {task.channel === "instagram" && <Button variant="secondary" size="sm" className="flex-1 sm:size-default text-orange-700 border-orange-200 hover:bg-orange-50" onClick={() => { copyToClipboard(getVendorComment(vendor)); if (link) openLink(link); }}><ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Comment</Button>}
               <Button variant="secondary" size="sm" className="flex-1 sm:size-default" onClick={handleSessionOpen}><ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Open</Button>
             </div>
 
@@ -734,8 +785,9 @@ export default function OutreachPage() {
 
   // ─── Render: Queue + Done Today ──────────────────────────────────────────
 
-  const totalTarget = plan.progress.instagram.target + plan.progress.whatsapp.target + plan.progress.email.target;
+  const totalTarget = plan.progress.instagram.target + plan.progress.whatsapp.target + plan.progress.email.target + plan.progress.linkedin.target;
   const overallPct = totalTarget > 0 ? Math.round((plan.doneToday.total / totalTarget) * 100) : 0;
+  const plannedTotal = plan.plannedTasks.length;
 
   return (
     <div className="max-w-5xl mx-auto space-y-5 animate-fade-in pb-8">
@@ -745,7 +797,12 @@ export default function OutreachPage() {
         <div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Outreach</h1>
           <p className="text-muted-foreground text-xs sm:text-sm mt-0.5">
-            {plan.doneToday.total}/{totalTarget} done today · {queueTasks.length} in queue
+            {plan.doneToday.total}/{totalTarget} done today · {queueTasks.length} on-time in queue · cap {totalTarget}/day
+          </p>
+          <p className="text-[11px] text-muted-foreground mt-1 max-w-xl leading-relaxed">
+            <span className="font-medium text-foreground/80">{totalTarget}</span> ({plan.progress.instagram.target} IG + {plan.progress.whatsapp.target} WA + {plan.progress.email.target} email) is the <strong>maximum sends allowed today</strong>, not how many rows the Queue must show.{" "}
+            The Queue lists only vendors who are <strong>on time</strong> for their next step and assigned to you — often much fewer than {totalTarget}.{" "}
+            <span className="font-medium text-foreground/80">{plannedTotal}</span> planned total ({queueTasks.length} Queue{attentionTasks.length > 0 ? ` · ${attentionTasks.length} Attention` : ""}).
           </p>
         </div>
         <div className="flex items-center gap-3 sm:gap-4">
@@ -774,11 +831,11 @@ export default function OutreachPage() {
       )}
 
       {/* ─── Mini Progress ──────────────────────────────────────────────── */}
-      <div className="grid grid-cols-3 gap-2 sm:gap-3">
-        {(["instagram", "whatsapp", "email"] as Channel[]).map(ch => {
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+        {(["instagram", "whatsapp", "email", "linkedin"] as Channel[]).map(ch => {
           const p = plan.progress[ch];
           const pct = Math.min(p.pct, 100);
-          const barColor = ch === "instagram" ? "bg-pink-500" : ch === "whatsapp" ? "bg-green-500" : "bg-blue-500";
+          const barColor = ch === "instagram" ? "bg-pink-500" : ch === "whatsapp" ? "bg-green-500" : ch === "linkedin" ? "bg-sky-500" : "bg-blue-500";
           return (
             <div key={ch} className="rounded-lg border p-3">
               <div className="flex items-center justify-between mb-1.5">
@@ -796,17 +853,44 @@ export default function OutreachPage() {
       {/* ─── How It Works Guide ─────────────────────────────────────────── */}
       <div className="hidden sm:block rounded-xl border bg-gradient-to-r from-blue-50/50 to-transparent p-4">
         <p className="text-xs font-semibold text-muted-foreground mb-1.5">HOW IT WORKS</p>
-        <p className="text-xs text-muted-foreground leading-relaxed">
-          Each vendor follows a <strong>drip sequence</strong> — channels are contacted one at a time with gaps between them.
-          A vendor with IG + WA + Email gets: <span className="font-medium">IG first → WA after 3 days → Email after 5 days → then follow-ups</span>.
-          Only the <strong>current step</strong> appears in your queue. The dots <span className="inline-flex items-center gap-0.5 mx-0.5"><span className="h-2 w-2 rounded-full bg-pink-500 inline-block" /><span className="h-2 w-2 rounded-full bg-gray-200 inline-block" /><span className="h-2 w-2 rounded-full bg-gray-200 inline-block" /></span> show journey progress.
-        </p>
+        {plan.outreachMode === "parallel" ? (
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            <strong>Parallel mode</strong> (drip off in Settings): only <em>new</em> initial outreach — no follow-ups, no overdue rollover.
+            Per channel, the pending pool is sorted and chunked: each agent gets a fixed slice of {plan.progress.instagram.target} IG / {plan.progress.whatsapp.target} WA / {plan.progress.email.target} Email vendors (totalling {totalTarget}/day) with no overlap between agents.
+            If the pool runs out, later agents may receive fewer than the target.
+            {" "}<span className="font-medium text-foreground/90">Queue ({queueTasks.length})</span> · cap {totalTarget}/day.
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Each vendor follows a <strong>drip sequence</strong> — channels are contacted one at a time with gaps between them.
+            A vendor with IG + WA + Email gets: <span className="font-medium">IG first → WA after 3 days → Email after 5 days → then follow-ups</span>.
+            Only the <strong>current step</strong> appears in your queue. The dots <span className="inline-flex items-center gap-0.5 mx-0.5"><span className="h-2 w-2 rounded-full bg-pink-500 inline-block" /><span className="h-2 w-2 rounded-full bg-gray-200 inline-block" /><span className="h-2 w-2 rounded-full bg-gray-200 inline-block" /></span> show journey progress.
+            {" "}<span className="font-medium text-foreground/90">Queue ({queueTasks.length})</span> is “how many on-time leads are ready <em>right now</em>,” not the same number as your daily cap ({totalTarget}).
+          </p>
+        )}
       </div>
 
       {/* ─── Tabs ───────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-1 border-b">
-        <button onClick={() => setActiveTab("queue")} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${activeTab === "queue" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
-          Queue ({queueTasks.length})
+        <button
+          onClick={() => setActiveTab("queue")}
+          title={`On-time tasks ready now. Daily send cap: ${totalTarget} (${plan.progress.instagram.target} IG + ${plan.progress.whatsapp.target} WA + ${plan.progress.email.target} email).`}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors text-left ${activeTab === "queue" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+        >
+          <span className="block leading-tight">Queue</span>
+          <span className="block text-[10px] font-normal tabular-nums text-muted-foreground mt-0.5">
+            {queueTasks.length} ready · max {totalTarget}/day
+          </span>
+        </button>
+        <button onClick={() => setActiveTab("attention")} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${activeTab === "attention" ? "border-destructive text-destructive" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+          <span className="flex items-center gap-1.5">
+            Attention Needed
+            {attentionTasks.length > 0 && (
+              <span className="inline-flex items-center justify-center rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-semibold text-destructive-foreground min-w-[18px]">
+                {attentionTasks.length}
+              </span>
+            )}
+          </span>
         </button>
         <button onClick={() => setActiveTab("done")} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${activeTab === "done" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
           Done Today ({doneTodayList.length})
@@ -818,15 +902,15 @@ export default function OutreachPage() {
         <div className="space-y-3">
           {/* Filters */}
           <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
-            {(["all", "instagram", "whatsapp", "email"] as const).map(f => (
+            {(["all", "instagram", "whatsapp", "email", "linkedin"] as const).map(f => (
               <button key={f} onClick={() => setChannelFilter(f)} className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${channelFilter === f ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
                 {f === "all" ? "All Channels" : CH_LABEL[f]}
               </button>
             ))}
             <div className="w-px h-6 bg-border self-center mx-1 shrink-0" />
-            {(["all", "overdue", "followup", "initial"] as const).map(f => (
+            {(["all", "followup", "initial"] as const).map(f => (
               <button key={f} onClick={() => setTypeFilter(f)} className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${typeFilter === f ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
-                {f === "all" ? "All Types" : f === "overdue" ? "Overdue" : f === "followup" ? "Follow-ups" : "New Outreach"}
+                {f === "all" ? "All Types" : f === "followup" ? "Follow-ups" : "New Outreach"}
               </button>
             ))}
           </div>
@@ -848,15 +932,15 @@ export default function OutreachPage() {
               {queueTasks.map(task => {
                 const vendor = vendorMap.get(task.vendorId);
                 if (!vendor) return null;
-                const isExpanded = expandedId === task.vendorId;
+                const isExpanded = expandedId === taskRowKey(task);
                 const message = getVendorMessage(vendor, task.channel, task.type === "followup");
                 const subject = task.channel === "email" ? getVendorSubject(vendor, task.type === "followup") : "";
                 const link = getActionLink(vendor, task.channel, message, subject);
 
                 return (
-                  <div key={task.vendorId} className={`rounded-xl border transition-all ${task.isOverdue ? "border-red-200 bg-red-50/30" : "hover:border-primary/20 hover:shadow-sm"} ${isExpanded ? "shadow-sm" : ""}`}>
+                  <div key={taskRowKey(task)} className={`rounded-xl border transition-all ${task.isOverdue ? "border-red-200 bg-red-50/30" : "hover:border-primary/20 hover:shadow-sm"} ${isExpanded ? "shadow-sm" : ""}`}>
                     {/* Row */}
-                    <div className="px-3 sm:px-4 py-3 cursor-pointer" onClick={() => setExpandedId(isExpanded ? null : task.vendorId)}>
+                    <div className="px-3 sm:px-4 py-3 cursor-pointer" onClick={() => setExpandedId(isExpanded ? null : taskRowKey(task))}>
                       {/* Desktop row */}
                       <div className="hidden md:grid items-center gap-3" style={{ gridTemplateColumns: "20px 1fr 100px 80px 140px 136px" }}>
                         <div className="text-muted-foreground">
@@ -888,10 +972,10 @@ export default function OutreachPage() {
                           <Button variant="ghost" size="icon" className="h-8 w-8" title="Copy" disabled={!!actionInProgress} onClick={() => copyToClipboard(message)}><Copy className="h-3.5 w-3.5" /></Button>
                           <Button variant="ghost" size="icon" className="h-8 w-8" title="Open" disabled={!!actionInProgress} onClick={() => { copyToClipboard(message); if (link) openLink(link); }}><ExternalLink className="h-3.5 w-3.5" /></Button>
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50" title="Sent" disabled={!!actionInProgress} onClick={() => markSent(task)}>
-                            {actionInProgress === `sent-${task.vendorId}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                            {actionInProgress === `sent-${taskRowKey(task)}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                           </Button>
                           <Button variant="ghost" size="icon" className="h-8 w-8" title="Skip" disabled={!!actionInProgress} onClick={() => markSkipped(task)}>
-                            {actionInProgress === `skip-${task.vendorId}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <SkipForward className="h-3.5 w-3.5" />}
+                            {actionInProgress === `skip-${taskRowKey(task)}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <SkipForward className="h-3.5 w-3.5" />}
                           </Button>
                         </div>
                       </div>
@@ -927,10 +1011,10 @@ export default function OutreachPage() {
                             <Button variant="ghost" size="icon" className="h-7 w-7" title="Copy" disabled={!!actionInProgress} onClick={() => copyToClipboard(message)}><Copy className="h-3 w-3" /></Button>
                             <Button variant="ghost" size="icon" className="h-7 w-7" title="Open" disabled={!!actionInProgress} onClick={() => { copyToClipboard(message); if (link) openLink(link); }}><ExternalLink className="h-3 w-3" /></Button>
                             <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600" title="Sent" disabled={!!actionInProgress} onClick={() => markSent(task)}>
-                              {actionInProgress === `sent-${task.vendorId}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                              {actionInProgress === `sent-${taskRowKey(task)}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                             </Button>
                             <Button variant="ghost" size="icon" className="h-7 w-7" title="Skip" disabled={!!actionInProgress} onClick={() => markSkipped(task)}>
-                              {actionInProgress === `skip-${task.vendorId}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <SkipForward className="h-3 w-3" />}
+                              {actionInProgress === `skip-${taskRowKey(task)}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <SkipForward className="h-3 w-3" />}
                             </Button>
                           </div>
                         </div>
@@ -1061,16 +1145,169 @@ export default function OutreachPage() {
                           <div className="flex flex-wrap gap-2">
                             {task.channel === "email" && <Button size="sm" variant="outline" onClick={() => copyToClipboard(subject)}><Copy className="h-3 w-3 mr-1.5" /> Copy Subject</Button>}
                             <Button size="sm" variant="outline" onClick={() => copyToClipboard(message)}><Copy className="h-3 w-3 mr-1.5" /> Copy Message</Button>
+                            {task.channel === "instagram" && <Button size="sm" variant="outline" className="text-orange-700 border-orange-200 hover:bg-orange-50" onClick={() => { copyToClipboard(getVendorComment(vendor)); if (link) openLink(link); }}><ExternalLink className="h-3 w-3 mr-1.5" /> Comment</Button>}
                             <Button size="sm" variant="outline" onClick={() => { copyToClipboard(message); if (link) openLink(link); }}><ExternalLink className="h-3 w-3 mr-1.5" /> Open {CH_LABEL[task.channel]}</Button>
                             <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" disabled={!!actionInProgress} onClick={() => markSent(task)}>
-                              {actionInProgress === `sent-${task.vendorId}` ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <CheckCircle2 className="h-3 w-3 mr-1.5" />} Mark Sent
+                              {actionInProgress === `sent-${taskRowKey(task)}` ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <CheckCircle2 className="h-3 w-3 mr-1.5" />} Mark Sent
                             </Button>
                             <Button size="sm" variant="secondary" disabled={!!actionInProgress} onClick={() => markSkipped(task)}>
-                              {actionInProgress === `skip-${task.vendorId}` ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <SkipForward className="h-3 w-3 mr-1.5" />} Skip
+                              {actionInProgress === `skip-${taskRowKey(task)}` ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <SkipForward className="h-3 w-3 mr-1.5" />} Skip
                             </Button>
                             <Button size="sm" variant="ghost" className="text-gray-400 hover:text-red-500 hover:bg-red-50" disabled={!!actionInProgress} onClick={async () => { if (actionInProgress) return; setActionInProgress(`remove-${vendor.id}`); try { await supabase.from("vendors").update({ overall_status: "invalid" }).eq("id", vendor.id); toast({ title: "Vendor removed", duration: 1500 }); setExpandedId(null); fetchData(); window.dispatchEvent(new Event("vendors-updated")); } finally { setActionInProgress(null); } }} title="Not a valid vendor"><Trash2 className="h-3 w-3 mr-1.5" /> Remove</Button>
                           </div>
 
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── Attention Needed Tab ──────────────────────────────────────── */}
+      {activeTab === "attention" && (
+        <div className="space-y-3">
+          {/* Info banner */}
+          <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 flex items-start gap-3">
+            <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+            <p className="text-xs text-muted-foreground">
+              These are <strong>past the planned date</strong> for their current step (initial or follow-up). Clear them here so your <strong>Queue</strong> stays for on-time and new outreach.
+            </p>
+          </div>
+
+          {/* Channel filter for attention tab */}
+          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
+            {(["all", "instagram", "whatsapp", "email", "linkedin"] as const).map(f => (
+              <button key={f} onClick={() => setChannelFilter(f)} className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${channelFilter === f ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
+                {f === "all" ? "All Channels" : CH_LABEL[f]}
+              </button>
+            ))}
+          </div>
+
+          {attentionTasks.length === 0 ? (
+            <Card><CardContent className="py-10 text-center">
+              <CheckCircle2 className="h-10 w-10 text-emerald-300 mx-auto mb-3" />
+              <p className="font-medium text-muted-foreground">No overdue items needing attention</p>
+              <p className="text-xs text-muted-foreground mt-1">All tasks are on schedule.</p>
+            </CardContent></Card>
+          ) : (
+            <div className="space-y-2">
+              {attentionTasks.map(task => {
+                const vendor = vendorMap.get(task.vendorId);
+                if (!vendor) return null;
+                const isExpanded = expandedId === `attn-${taskRowKey(task)}`;
+                const message = getVendorMessage(vendor, task.channel, task.type === "followup");
+                const subject = task.channel === "email" ? getVendorSubject(vendor, task.type === "followup") : "";
+                const link = getActionLink(vendor, task.channel, message, subject);
+
+                return (
+                  <div key={`attn-${taskRowKey(task)}`} className="rounded-xl border border-red-200 bg-red-50/30 transition-all hover:shadow-sm">
+                    {/* Row */}
+                    <div className="px-3 sm:px-4 py-3 cursor-pointer" onClick={() => setExpandedId(isExpanded ? null : `attn-${taskRowKey(task)}`)}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-2 min-w-0 flex-1">
+                          <div className="text-muted-foreground mt-0.5 shrink-0">
+                            {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-semibold text-sm">{task.vendorName}</p>
+                              <ChannelPill channel={task.channel} />
+                              <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                                +{task.daysOverdue}d overdue
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground mt-0.5">
+                              {CATEGORIES.find(c => c.key === task.category)?.label} · {task.city}
+                              {task.sequenceLabel && ` · ${task.sequenceLabel} · Step ${task.stepNumber}/${task.totalSteps}`}
+                            </p>
+                            <p className="text-[11px] font-mono text-muted-foreground mt-0.5">{task.identifier}</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Copy" disabled={!!actionInProgress} onClick={() => copyToClipboard(message)}><Copy className="h-3.5 w-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Open" disabled={!!actionInProgress} onClick={() => { copyToClipboard(message); if (link) openLink(link); }}><ExternalLink className="h-3.5 w-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50" title="Sent" disabled={!!actionInProgress} onClick={() => markSent(task)}>
+                            {actionInProgress === `sent-${taskRowKey(task)}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Skip" disabled={!!actionInProgress} onClick={() => markSkipped(task)}>
+                            {actionInProgress === `skip-${taskRowKey(task)}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <SkipForward className="h-3.5 w-3.5" />}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Expanded */}
+                    {isExpanded && (
+                      <div className="px-4 pb-4 border-t border-red-200 animate-fade-in">
+                        <div className="max-w-2xl mx-auto space-y-3 pt-3">
+                          {/* Vendor channels */}
+                          <div className="flex flex-wrap gap-2 text-xs">
+                            {vendor.has_instagram && (
+                              <div className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 bg-background">
+                                <Instagram className="h-3 w-3 text-pink-500" /> <StatusBadge status={vendor.insta_status} />
+                                <span className="font-mono text-muted-foreground">@{vendor.username}</span>
+                              </div>
+                            )}
+                            {vendor.has_phone && (
+                              <div className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 bg-background">
+                                <Phone className="h-3 w-3 text-green-500" /> <StatusBadge status={vendor.whatsapp_status} />
+                                <span className="font-mono text-muted-foreground">{vendor.phone}</span>
+                              </div>
+                            )}
+                            {vendor.has_email && (
+                              <div className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 bg-background">
+                                <Mail className="h-3 w-3 text-blue-500" /> <StatusBadge status={vendor.email_status} />
+                                <span className="font-mono text-muted-foreground truncate max-w-[150px]">{vendor.email}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Claim Link */}
+                          {vendor.claim_link && (
+                            <div className="rounded-lg border bg-gradient-to-r from-emerald-50/60 to-transparent p-2.5 overflow-hidden">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                  <Link2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                                  <span className="text-[11px] font-semibold text-emerald-700 shrink-0">Claim Link</span>
+                                </div>
+                                <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-emerald-700 hover:bg-emerald-100" onClick={() => copyToClipboard(vendor.claim_link)}>
+                                  <Copy className="h-3 w-3 mr-1" /> Copy
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Email subject */}
+                          {task.channel === "email" && subject && (
+                            <div className="rounded-lg border p-2.5 bg-muted/30">
+                              <p className="text-[10px] font-medium text-muted-foreground mb-0.5">Subject</p>
+                              <p className="text-xs">{subject}</p>
+                            </div>
+                          )}
+
+                          {/* Message */}
+                          <div className="rounded-lg border p-3 bg-muted/30 overflow-hidden">
+                            <p className="text-xs leading-relaxed whitespace-pre-wrap break-all">{message}</p>
+                          </div>
+
+                          {/* Actions */}
+                          <div className="flex flex-wrap gap-2">
+                            {task.channel === "email" && subject && <Button size="sm" variant="outline" onClick={() => copyToClipboard(subject)}><Copy className="h-3 w-3 mr-1.5" /> Copy Subject</Button>}
+                            <Button size="sm" variant="outline" onClick={() => copyToClipboard(message)}><Copy className="h-3 w-3 mr-1.5" /> Copy Message</Button>
+                            {task.channel === "instagram" && <Button size="sm" variant="outline" className="text-orange-700 border-orange-200 hover:bg-orange-50" onClick={() => { copyToClipboard(getVendorComment(vendor)); if (link) openLink(link); }}><ExternalLink className="h-3 w-3 mr-1.5" /> Comment</Button>}
+                            <Button size="sm" variant="outline" onClick={() => { copyToClipboard(message); if (link) openLink(link); }}><ExternalLink className="h-3 w-3 mr-1.5" /> Open {CH_LABEL[task.channel]}</Button>
+                            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" disabled={!!actionInProgress} onClick={() => markSent(task)}>
+                              {actionInProgress === `sent-${taskRowKey(task)}` ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <CheckCircle2 className="h-3 w-3 mr-1.5" />} Mark Sent
+                            </Button>
+                            <Button size="sm" variant="secondary" disabled={!!actionInProgress} onClick={() => markSkipped(task)}>
+                              {actionInProgress === `skip-${taskRowKey(task)}` ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <SkipForward className="h-3 w-3 mr-1.5" />} Skip
+                            </Button>
+                            <Button size="sm" variant="ghost" className="text-gray-400 hover:text-red-500 hover:bg-red-50" disabled={!!actionInProgress} onClick={async () => { if (actionInProgress) return; setActionInProgress(`remove-${vendor.id}`); try { await supabase.from("vendors").update({ overall_status: "invalid" }).eq("id", vendor.id); toast({ title: "Vendor removed", duration: 1500 }); setExpandedId(null); fetchData(); window.dispatchEvent(new Event("vendors-updated")); } finally { setActionInProgress(null); } }} title="Not a valid vendor"><Trash2 className="h-3 w-3 mr-1.5" /> Remove</Button>
+                          </div>
                         </div>
                       </div>
                     )}
