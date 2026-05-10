@@ -163,14 +163,15 @@ export default function TodayPage() {
 
   const plan: DailyPlan | null = useMemo(() => {
     if (loading || !currentUser) return null;
-    // Wait until team members are loaded to avoid everyone getting agentCount=1
-    if (teamMembers.length === 0) return null;
     const sortedAgents = [...teamMembers].sort((a, b) => a.id.localeCompare(b.id));
+    if (sortedAgents.length === 0) {
+      return buildDailyPlan(vendors, sequences, logs, settings, currentUser.id, 1, 0, [currentUser.id]);
+    }
     const agentIndex = sortedAgents.findIndex(a => a.id === currentUser.id);
-    // If current user isn't in the active team list, they still get a unique slot
     const idx = agentIndex >= 0 ? agentIndex : sortedAgents.length;
     const totalSlots = agentIndex >= 0 ? sortedAgents.length : sortedAgents.length + 1;
-    return buildDailyPlan(vendors, sequences, logs, settings, currentUser.id, totalSlots, idx);
+    const teamAgentIds = sortedAgents.map(a => a.id);
+    return buildDailyPlan(vendors, sequences, logs, settings, currentUser.id, totalSlots, idx, teamAgentIds);
   }, [vendors, sequences, logs, settings, loading, currentUser, teamMembers]);
 
   if (loading || !plan) {

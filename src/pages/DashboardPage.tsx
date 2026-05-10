@@ -14,6 +14,7 @@ import { CATEGORIES } from "@/lib/vendor-utils";
 import { ResponseActions } from "@/components/ResponseActions";
 import { useAuth } from "@/contexts/AuthContext";
 import ChannelDashboard from "./ChannelDashboard";
+import { computeParallelAllocation, type ParallelAllocationSummary } from "@/lib/daily-plan-engine";
 
 function computeOverallStatus(v: any): string {
   if (v.overall_status === "invalid") return "invalid";
@@ -306,65 +307,116 @@ const TAB_OPTIONS = ["overview", "instagram", "whatsapp", "email", "linkedin", "
 type TabValue = typeof TAB_OPTIONS[number];
 
 function TeamActivityCard() {
-  const [teamData, setTeamData] = useState<{ name: string; instagram: number; whatsapp: number; email: number; linkedin: number }[]>([]);
+  const [allocation, setAllocation] = useState<ParallelAllocationSummary | null>(null);
+  const [teamRows, setTeamRows] = useState<{ id: string; name: string }[]>([]);
 
-  useEffect(() => {
-    const fetchTeamActivity = async () => {
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
+  const refresh = async () => {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
 
-      const [{ data: members }, { data: logs }] = await Promise.all([
-        supabase.from("team_members").select("id, name").eq("is_active", true),
-        supabase.from("outreach_log").select("user_id, channel, action").gte("created_at", todayStart.toISOString()),
-      ]);
+    const [{ data: members }, { data: vendors }, { data: logs }, { data: settingsRows }] = await Promise.all([
+      supabase.from("team_members").select("id, name").eq("is_active", true),
+      supabase.from("vendors").select("*"),
+      supabase.from("outreach_log").select("vendor_id, user_id, channel, action, created_at").gte("created_at", todayStart.toISOString()),
+      supabase.from("settings").select("*"),
+    ]);
 
-      const sentLogs = (logs ?? []).filter(l => l.action === "sent" || l.action === "followed_up");
-      const rows = (members ?? []).map(m => ({
-        name: m.name,
-        instagram: sentLogs.filter(l => l.user_id === m.id && l.channel === "instagram").length,
-        whatsapp: sentLogs.filter(l => l.user_id === m.id && l.channel === "whatsapp").length,
-        email: sentLogs.filter(l => l.user_id === m.id && l.channel === "email").length,
-        linkedin: sentLogs.filter(l => l.user_id === m.id && l.channel === "linkedin").length,
-      }));
-      setTeamData(rows);
-    };
-    fetchTeamActivity();
-  }, []);
+    const settings: Record<string, string> = {};
+    for (const row of settingsRows ?? []) settings[row.key] = row.value;
 
-  if (teamData.length === 0) return null;
+    const team = (members ?? []).map(m => ({ id: m.id, name: m.name }));
+    setTeamRows(team);
+    setAllocation(computeParallelAllocation(vendors ?? [], (logs ?? []) as any[], settings, team));
+  };
+
+  useEffect(() => { refresh(); }, []);
+
+  if (teamRows.length === 0 || !allocation) return null;
+
+  const parallel = allocation.enabled;
+  const channels = [
+    { key: "instagram" as const, label: "IG" },
+    { key: "whatsapp" as const, label: "WA" },
+    { key: "email" as const, label: "Email" },
+    { key: "linkedin" as const, label: "LI" },
+  ];
 
   return (
     <Card>
       <CardHeader className="pb-2">
-        <h3 className="text-sm font-semibold">👥 Team Activity Today</h3>
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold">👥 Team Activity Today</h3>
+          <Button size="sm" variant="ghost" onClick={refresh} className="h-7 text-xs">Refresh</Button>
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">
+          {parallel
+            ? "Parallel mode is on. Each agent gets a fixed slice (= channel target) of the sorted pending pool. Increase a daily target in Settings or upload more vendors to grow per-agent assignments."
+            : "Drip mode is on. Tasks are routed to one agent per vendor via stable hash, so per-agent counts here only show what's been sent today."}
+        </p>
       </CardHeader>
-      <CardContent>
-        <div className="rounded-lg border overflow-hidden">
+      <CardContent className="space-y-4">
+        {parallel && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {channels.map(c => {
+              const p = allocation.pool[c.key];
+              return (
+                <div key={c.key} className="rounded-lg border px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{c.label} pool</p>
+                  <p className="text-sm font-semibold tabular-nums">
+                    {p.assigned}<span className="text-muted-foreground font-normal">/{p.available}</span>
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">
+                    target {p.target}/agent · {p.unassigned} unassigned
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="rounded-lg border overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
                 <th className="text-left px-3 py-2 font-medium text-xs text-muted-foreground">Agent</th>
-                <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground">IG</th>
-                <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground">WA</th>
-                <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground">Email</th>
-                <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground">LI</th>
+                {channels.map(c => (
+                  <th key={c.key} className="text-center px-3 py-2 font-medium text-xs text-muted-foreground">{c.label}</th>
+                ))}
                 <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground">Total</th>
               </tr>
             </thead>
             <tbody>
-              {teamData.map(d => (
-                <tr key={d.name} className="border-t">
-                  <td className="px-3 py-2 font-medium">{d.name}</td>
-                  <td className="px-3 py-2 text-center">{d.instagram}</td>
-                  <td className="px-3 py-2 text-center">{d.whatsapp}</td>
-                  <td className="px-3 py-2 text-center">{d.email}</td>
-                  <td className="px-3 py-2 text-center">{d.linkedin}</td>
-                  <td className="px-3 py-2 text-center font-semibold">{d.instagram + d.whatsapp + d.email + d.linkedin}</td>
+              {allocation.agents.map(a => (
+                <tr key={a.agentId} className="border-t">
+                  <td className="px-3 py-2 font-medium">{a.agentName}</td>
+                  {channels.map(c => {
+                    const cell = a.perChannel[c.key];
+                    return (
+                      <td key={c.key} className="px-3 py-2 text-center tabular-nums">
+                        {parallel ? (
+                          <span>
+                            <span className="font-semibold">{cell.doneToday}</span>
+                            <span className="text-muted-foreground"> / {cell.assigned}</span>
+                          </span>
+                        ) : (
+                          cell.doneToday
+                        )}
+                      </td>
+                    );
+                  })}
+                  <td className="px-3 py-2 text-center font-semibold tabular-nums">
+                    {parallel ? `${a.totalDone} / ${a.totalAssigned}` : a.totalDone}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        {parallel && (
+          <p className="text-[11px] text-muted-foreground">
+            Cells show <strong>done&nbsp;/&nbsp;assigned</strong>. “Assigned” is what the planner gives each agent <em>today</em>; admins can change Daily Targets in Settings or upload more vendors to lift the numbers. “Unassigned” in the pool row is overflow that today’s targets cannot absorb.
+          </p>
+        )}
       </CardContent>
     </Card>
   );

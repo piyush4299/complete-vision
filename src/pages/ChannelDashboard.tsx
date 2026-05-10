@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Copy, ExternalLink, Check, SkipForward, ChevronLeft, ChevronRight } from "lucide-react";
+import { Copy, ExternalLink, Check, SkipForward, ChevronLeft, ChevronRight, Info } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CATEGORIES } from "@/lib/vendor-utils";
@@ -107,9 +108,31 @@ export default function ChannelDashboard({ channel, title, icon, hasField, statu
     { label: "Follow-up Ready", value: stats.followUpReady },
   ];
 
+  const dripNote =
+    channel === "instagram"
+      ? "Pending here means “no Instagram message sent yet.” My Tasks shows the same vendors only when Instagram is their current step (often first in the sequence)."
+      : channel === "whatsapp"
+        ? "Pending counts anyone who hasn’t used WhatsApp yet — including leads still on Instagram (Tier A). They are not eligible for a WhatsApp task until earlier steps and wait times are done."
+        : channel === "linkedin"
+          ? "Pending counts anyone who hasn’t had a LinkedIn touch yet. In Tier F (LI+IG+WA+Email) LinkedIn is the first step; in other tiers it’s a standalone channel."
+          : "Pending counts anyone who hasn’t been emailed yet — including leads still on Instagram or WhatsApp. My Tasks only surfaces email when it is that vendor’s active step in the drip.";
+
   return (
     <div className={`space-y-6 ${embedded ? "" : "animate-fade-in"}`}>
       {!embedded && <h1 className="text-2xl font-bold tracking-tight">{icon} {title}</h1>}
+
+      <Alert className="border-blue-200 bg-blue-50/50 dark:bg-blue-950/20 dark:border-blue-900">
+        <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+        <AlertTitle className="text-blue-900 dark:text-blue-100">Why this differs from My Tasks</AlertTitle>
+        <AlertDescription className="text-blue-900/85 dark:text-blue-100/85 text-xs leading-relaxed mt-1 space-y-2">
+          <p>
+            Dashboard stats are <strong>per channel</strong>: “Pending” only means that channel has not been marked sent yet. It does <strong>not</strong> mean that channel is next in the outreach flow.
+          </p>
+          <p>
+            <strong>My Tasks</strong> follows the <strong>drip sequence</strong> (one channel at a time, with waiting days between steps). {dripNote}
+          </p>
+        </AlertDescription>
+      </Alert>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map(s => (

@@ -5,11 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { Save, RefreshCw, Loader2, Plus, Trash2, UserCheck, UserX, Copy, Check, CloudOff } from "lucide-react";
 import { generateClaimLink } from "@/lib/vendor-utils";
+import { computeParallelAllocation, agentCapKey, type ParallelAllocationSummary } from "@/lib/daily-plan-engine";
 
 // ─── Auto-save hook ──────────────────────────────────────────────────────────
 
@@ -106,10 +108,36 @@ export default function SettingsPage() {
   const isAdmin = currentUser?.role === "admin";
   const userId = currentUser?.id || "";
 
+  const [allocCache, setAllocCache] = useState<{ vendors: any[]; logs: any[]; members: { id: string; name: string }[] } | null>(null);
+  const allocation: ParallelAllocationSummary | null = useMemo(() => {
+    if (!isAdmin || !allocCache) return null;
+    return computeParallelAllocation(allocCache.vendors, allocCache.logs, settings, allocCache.members);
+  }, [isAdmin, allocCache, settings]);
+
   const fetchTeamMembers = async () => {
     const { data } = await supabase.from("team_members").select("*").order("created_at");
     setTeamMembers(data ?? []);
   };
+
+  const refreshAllocation = useCallback(async () => {
+    if (!isAdmin) return;
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const [{ data: vendors }, { data: logs }, { data: members }] = await Promise.all([
+      supabase.from("vendors").select("*"),
+      supabase.from("outreach_log").select("vendor_id, user_id, channel, action, created_at").gte("created_at", todayStart.toISOString()),
+      supabase.from("team_members").select("id, name").eq("is_active", true),
+    ]);
+
+    setAllocCache({
+      vendors: vendors ?? [],
+      logs: (logs ?? []) as any[],
+      members: (members ?? []).map(m => ({ id: m.id, name: m.name })),
+    });
+  }, [isAdmin]);
+
+  useEffect(() => { refreshAllocation(); }, [refreshAllocation]);
 
   const fetchTemplates = async () => {
     const { data } = await supabase.from("message_templates").select("*").order("channel").order("type");
@@ -255,6 +283,12 @@ export default function SettingsPage() {
 
   const adminOnlySettings = [
     {
+      title: "📣 Outreach mode",
+      items: [
+        { key: "drip_sequence_enabled", label: "Drip sequence (IG → wait → WA → …)", type: "switch" },
+      ],
+    },
+    {
       title: "🛡️ Instagram Safety (Global Default)",
       items: [
         { key: "insta_account_age", label: "Default account age", type: "select", options: ["new", "warm", "aged"], optionLabels: ["New (< 2 weeks) — 15/day", "Warm (2-4 weeks) — 25/day", "Aged (> 1 month) — 40/day"] },
@@ -267,6 +301,12 @@ export default function SettingsPage() {
         { key: "instagram_daily_target", label: "Instagram DMs per day", type: "number" },
         { key: "whatsapp_daily_target", label: "WhatsApp messages per day", type: "number" },
         { key: "email_daily_target", label: "Emails per day", type: "number" },
+        { key: "linkedin_daily_target", label: "LinkedIn messages per day", type: "number" },
+        {
+          key: "queue_fill_lookahead_days",
+          label: "Pull sequence steps up to N days early (0 = only timing relax, no future steps)",
+          type: "number",
+        },
       ],
     },
     {
@@ -277,6 +317,7 @@ export default function SettingsPage() {
         { key: "days_insta_followup", label: "Days before Instagram follow-up" },
         { key: "days_wa_followup", label: "Days before WhatsApp follow-up" },
         { key: "days_email_followup", label: "Days before Email follow-up" },
+        { key: "days_linkedin_followup", label: "Days before LinkedIn follow-up" },
         { key: "days_exhausted", label: "Days before marking as Exhausted" },
         { key: "days_reengagement", label: "Days before Maybe Later re-engagement" },
       ],
@@ -296,7 +337,22 @@ export default function SettingsPage() {
     },
   ];
 
-  const settingsConfig = isAdmin ? [...agentSettings, ...adminOnlySettings] : agentSettings;
+  // When drip is OFF, hide drip-only sections / fields. Sequence Timing has no effect in
+  // parallel mode, and the lookahead field only matters for the drip planner.
+  const dripOff = (settings.drip_sequence_enabled ?? "true") === "false";
+  const DRIP_ONLY_SECTION_TITLES = new Set(["⏱️ Sequence Timing"]);
+  const DRIP_ONLY_KEYS = new Set(["queue_fill_lookahead_days"]);
+
+  const baseConfig = isAdmin ? [...agentSettings, ...adminOnlySettings] : agentSettings;
+  const settingsConfig = baseConfig
+    .filter(section => !(dripOff && DRIP_ONLY_SECTION_TITLES.has(section.title)))
+    .map(section => ({
+      ...section,
+      items: dripOff
+        ? section.items.filter((item: any) => !DRIP_ONLY_KEYS.has(item.key))
+        : section.items,
+    }))
+    .filter(section => section.items.length > 0);
 
   const channelLabel = (ch: string) => ch === "instagram" ? "📸 Instagram" : ch === "whatsapp" ? "💬 WhatsApp" : ch === "linkedin" ? "💼 LinkedIn" : "📧 Email";
   const typeLabel = (t: string) => {
@@ -328,13 +384,39 @@ export default function SettingsPage() {
             <CardTitle className="text-base">{section.title}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
+            {section.title.includes("Outreach mode") && (
+              <p className="text-xs text-muted-foreground -mt-1 mb-1">
+                <strong>On:</strong> one current step per vendor (drip + DB sequences, follow-ups, overdue rollover).{" "}
+                <strong>Off:</strong> only <em>new</em> initial outreach. Per channel, agents get a fixed slice of the pending pool — agent 1 gets the first <em>N</em> vendors, agent 2 the next <em>N</em>, etc. (where <em>N</em> = that channel’s daily target). No follow-ups, no overdue, no overlap between agents.
+              </p>
+            )}
+            {section.title.includes("Daily Targets") && (
+              <p className="text-xs text-muted-foreground -mt-1 mb-1">
+                Each active agent has this full daily budget for their own assigned vendors. Instagram also respects the weekly limit from Instagram Safety below.
+                {dripOff
+                  ? " In parallel mode, every channel’s pending pool is sliced into chunks of this size — agent 1 takes the first N, agent 2 the next N, and so on."
+                  : " The planner relaxes inter-step wait gaps and, if “Pull sequence steps…” is greater than 0, can include DB-sequence steps due within that many days so your queue can grow closer to these caps when enough vendors exist."}
+              </p>
+            )}
             {section.items.map((item: any) => (
               <div key={item.key} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
                 <Label className="text-sm w-full sm:w-64 sm:shrink-0 flex items-center gap-2">
                   {item.label}
                   <SaveIndicator status={saveStatus[item.key] || "idle"} />
                 </Label>
-                {item.type === "select" ? (
+                {item.type === "switch" ? (
+                  <div className="flex flex-col gap-1.5 w-full sm:flex-1 sm:max-w-md">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={(settings[item.key] ?? "true") !== "false"}
+                        onCheckedChange={c => updateSetting(item.key, c ? "true" : "false")}
+                      />
+                      <span className="text-xs text-muted-foreground">
+                        {(settings[item.key] ?? "true") !== "false" ? "Drip on" : "Parallel channels (drip off)"}
+                      </span>
+                    </div>
+                  </div>
+                ) : item.type === "select" ? (
                   <Select value={settings[item.key] || item.options[0]} onValueChange={v => updateSetting(item.key, v)}>
                     <SelectTrigger className="w-full sm:w-64"><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -468,8 +550,131 @@ export default function SettingsPage() {
               </table>
             </div>
             <p className="text-xs text-muted-foreground">
-              Tasks are automatically divided among active agents. Each agent sees their own portion of the daily queue.
+              Vendors are split across agents (same vendor always goes to the same person). Each agent uses the full Daily Targets above for their own queue. <strong>Queue</strong> is for on-time / new steps; <strong>Attention Needed</strong> is for any step that is past its planned date.
             </p>
+
+            {/* Today's allocation preview */}
+            {allocation && (
+              <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold">📊 Today’s Allocation</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      {allocation.enabled
+                        ? "Parallel mode: each active agent gets a fixed slice (= channel target) of the sorted pending pool. Increase a target above or upload more vendors to grow per-agent assignments."
+                        : "Drip mode: tasks route to one agent per vendor via stable hash. Per-agent assigned counts are not deterministic at this layer; only done-today is shown."}
+                    </p>
+                  </div>
+                  <Button size="sm" variant="ghost" onClick={refreshAllocation} className="h-7 text-xs shrink-0">
+                    <RefreshCw className="h-3 w-3 mr-1" /> Refresh
+                  </Button>
+                </div>
+
+                {allocation.enabled && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {(["instagram", "whatsapp", "email", "linkedin"] as const).map(ch => {
+                      const p = allocation.pool[ch];
+                      const label = ch === "instagram" ? "IG" : ch === "whatsapp" ? "WA" : ch === "email" ? "Email" : "LinkedIn";
+                      return (
+                        <div key={ch} className="rounded-md border bg-background px-2.5 py-1.5">
+                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label} pool</p>
+                          <p className="text-sm font-semibold tabular-nums">
+                            {p.assigned}<span className="text-muted-foreground font-normal">/{p.available}</span>
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">target {p.target} · {p.unassigned} unassigned</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="rounded-md border bg-background overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-medium text-xs text-muted-foreground">Agent</th>
+                        <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground">IG</th>
+                        <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground">WA</th>
+                        <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground">Email</th>
+                        <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground">LI</th>
+                        <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground">Total</th>
+                        {allocation.enabled && (
+                          <th className="text-right px-3 py-2 font-medium text-xs text-muted-foreground">Actions</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allocation.agents.map(a => (
+                        <tr key={a.agentId} className="border-t align-top">
+                          <td className="px-3 py-2 font-medium whitespace-nowrap">{a.agentName}</td>
+                          {(["instagram", "whatsapp", "email", "linkedin"] as const).map(ch => {
+                            const cell = a.perChannel[ch];
+                            const key = agentCapKey(a.agentId, ch);
+                            return (
+                              <td key={ch} className="px-2 py-2 text-center tabular-nums">
+                                {allocation.enabled ? (
+                                  <div className="flex flex-col items-center gap-0.5">
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      step={1}
+                                      value={settings[key] ?? String(cell.target)}
+                                      onChange={e => updateSetting(key, e.target.value)}
+                                      className="h-7 w-16 text-center text-xs px-1"
+                                    />
+                                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                      {cell.doneToday} done · {cell.assigned} ready
+                                    </span>
+                                  </div>
+                                ) : (
+                                  cell.doneToday
+                                )}
+                              </td>
+                            );
+                          })}
+                          <td className="px-3 py-2 text-center font-semibold tabular-nums whitespace-nowrap">
+                            {allocation.enabled ? `${a.totalDone} / ${a.totalAssigned}` : a.totalDone}
+                          </td>
+                          {allocation.enabled && (
+                            <td className="px-2 py-2 text-right whitespace-nowrap">
+                              <div className="flex gap-1 justify-end">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 px-2 text-[11px]"
+                                  title="Set all channels to 0 (skip this agent today)"
+                                  onClick={() => {
+                                    (["instagram", "whatsapp", "email", "linkedin"] as const).forEach(ch => updateSetting(agentCapKey(a.agentId, ch), "0"));
+                                  }}
+                                >
+                                  0 all
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 px-2 text-[11px]"
+                                  title="Reset overrides — use global Daily Targets"
+                                  onClick={() => {
+                                    (["instagram", "whatsapp", "email", "linkedin"] as const).forEach(ch => updateSetting(agentCapKey(a.agentId, ch), ""));
+                                  }}
+                                >
+                                  Reset
+                                </Button>
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {allocation.enabled && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Cells are editable: enter how many vendors per channel each agent should get today. <strong>0</strong> skips that agent for that channel; <strong>Reset</strong> goes back to the global Daily Target. The unassigned pool reshuffles automatically. Currently {teamMembers.filter(m => m.is_active).length} active agents.
+                  </p>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
