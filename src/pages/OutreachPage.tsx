@@ -20,11 +20,12 @@ import {
   CATEGORIES,
   applyTemplatePlaceholders,
   stableVendorHash,
+  generateInstaComment,
   type SenderInfo,
 } from "@/lib/vendor-utils";
 import { buildDailyPlan, type DailyPlan, type DailyTask } from "@/lib/daily-plan-engine";
 
-type Channel = "instagram" | "whatsapp" | "email";
+type Channel = "instagram" | "whatsapp" | "email" | "linkedin";
 
 interface PausedSession {
   id: string;
@@ -38,19 +39,21 @@ interface PausedSession {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const CH_LABEL: Record<string, string> = { instagram: "Instagram", whatsapp: "WhatsApp", email: "Email" };
-const CH_SHORT: Record<string, string> = { instagram: "IG", whatsapp: "WA", email: "Em" };
+const CH_LABEL: Record<string, string> = { instagram: "Instagram", whatsapp: "WhatsApp", email: "Email", linkedin: "LinkedIn" };
+const CH_SHORT: Record<string, string> = { instagram: "IG", whatsapp: "WA", email: "Em", linkedin: "LI" };
 
 function ChannelPill({ channel }: { channel: string }) {
   const colors: Record<string, string> = {
     instagram: "bg-pink-100 text-pink-700",
     whatsapp: "bg-green-100 text-green-700",
     email: "bg-blue-100 text-blue-700",
+    linkedin: "bg-sky-100 text-sky-700",
   };
   const icons: Record<string, React.ReactNode> = {
     instagram: <Instagram className="h-3 w-3" />,
     whatsapp: <Phone className="h-3 w-3" />,
     email: <Mail className="h-3 w-3" />,
+    linkedin: <Link2 className="h-3 w-3" />,
   };
   return (
     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${colors[channel] || ""}`}>
@@ -66,6 +69,7 @@ function SequenceStepper({ task, vendor }: { task: DailyTask; vendor: any }) {
     if (vendor.has_instagram) statusMap.instagram = vendor.insta_status || "pending";
     if (vendor.has_phone) statusMap.whatsapp = vendor.whatsapp_status || "pending";
     if (vendor.has_email) statusMap.email = vendor.email_status || "pending";
+    if (vendor.has_linkedin) statusMap.linkedin = vendor.linkedin_status || "pending";
   }
 
   return (
@@ -77,8 +81,8 @@ function SequenceStepper({ task, vendor }: { task: DailyTask; vendor: any }) {
 
         let dotClass = "h-2 w-2 rounded-full ";
         if (isCurrent) dotClass += "ring-2 ring-offset-1 ";
-        if (isDone) dotClass += ch === "instagram" ? "bg-pink-500" : ch === "whatsapp" ? "bg-green-500" : "bg-blue-500";
-        else if (isCurrent) dotClass += ch === "instagram" ? "bg-pink-400 ring-pink-300" : ch === "whatsapp" ? "bg-green-400 ring-green-300" : "bg-blue-400 ring-blue-300";
+        if (isDone) dotClass += ch === "instagram" ? "bg-pink-500" : ch === "whatsapp" ? "bg-green-500" : ch === "linkedin" ? "bg-sky-500" : "bg-blue-500";
+        else if (isCurrent) dotClass += ch === "instagram" ? "bg-pink-400 ring-pink-300" : ch === "whatsapp" ? "bg-green-400 ring-green-300" : ch === "linkedin" ? "bg-sky-400 ring-sky-300" : "bg-blue-400 ring-blue-300";
         else dotClass += "bg-gray-200";
 
         return (
@@ -96,6 +100,7 @@ function getActionLink(vendor: any, channel: Channel, message: string, subject: 
   if (channel === "instagram") return vendor.profile_url || "";
   if (channel === "whatsapp") return `https://wa.me/91${vendor.phone}?text=${encodeURIComponent(message)}`;
   if (channel === "email") return `mailto:${vendor.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
+  if (channel === "linkedin") return vendor.linkedin_url || `https://www.linkedin.com/in/${vendor.linkedin_handle || ""}`;
   return "";
 }
 
@@ -178,7 +183,7 @@ export default function OutreachPage() {
   useEffect(() => {
     const ch = searchParams.get("channel");
     const type = searchParams.get("type");
-    if (ch && ["instagram", "whatsapp", "email"].includes(ch)) setChannelFilter(ch as Channel);
+    if (ch && ["instagram", "whatsapp", "email", "linkedin"].includes(ch)) setChannelFilter(ch as Channel);
     if (type === "overdue") setActiveTab("attention");
     else if (type === "followup") setTypeFilter("followup");
     else if (type === "outreach") setTypeFilter("initial");
@@ -263,7 +268,27 @@ export default function OutreachPage() {
     if (channel === "instagram") return vendor.insta_message || "";
     if (channel === "whatsapp") return vendor.whatsapp_message || "";
     if (channel === "email") return vendor.email_body || "";
+    if (channel === "linkedin") return vendor.linkedin_message || "";
     return "";
+  }, [templateMap, senderInfo]);
+
+  const getVendorComment = useCallback((vendor: any): string => {
+    // Check for comment templates in the template map (from DB)
+    const commentTemplates = Object.entries(templateMap)
+      .filter(([key]) => key.startsWith("instagram:comment"))
+      .map(([, templates]) => templates)
+      .flat();
+    
+    if (commentTemplates.length > 0) {
+      const idx = stableVendorHash(vendor.id) % commentTemplates.length;
+      return applyTemplatePlaceholders(commentTemplates[idx].body, vendor, senderInfo);
+    }
+    
+    // Fallback to hardcoded templates
+    const name = vendor.full_name || vendor.username || "there";
+    const cat = vendor.category || "uncategorized";
+    const idx = stableVendorHash(vendor.id);
+    return generateInstaComment(name, cat, idx);
   }, [templateMap, senderInfo]);
 
   const getVendorSubject = useCallback((vendor: any, isFollowUp: boolean): string => {
@@ -297,8 +322,8 @@ export default function OutreachPage() {
     try {
       const vendor = vendorMap.get(task.vendorId);
       if (!vendor) return;
-      const statusField = task.channel === "instagram" ? "insta_status" : task.channel === "whatsapp" ? "whatsapp_status" : "email_status";
-      const contactedField = task.channel === "instagram" ? "insta_contacted_at" : task.channel === "whatsapp" ? "whatsapp_contacted_at" : "email_contacted_at";
+      const statusField = task.channel === "instagram" ? "insta_status" : task.channel === "whatsapp" ? "whatsapp_status" : task.channel === "linkedin" ? "linkedin_status" : "email_status";
+      const contactedField = task.channel === "instagram" ? "insta_contacted_at" : task.channel === "whatsapp" ? "whatsapp_contacted_at" : task.channel === "linkedin" ? "linkedin_contacted_at" : "email_contacted_at";
       const newStatus = task.type === "followup" ? "followed_up" : "sent";
 
       await supabase.from("vendors").update({
@@ -353,8 +378,8 @@ export default function OutreachPage() {
       const vendor = vendorMap.get(logEntry.vendor_id);
       if (!vendor) return;
       const ch = logEntry.channel as Channel;
-      const statusField = ch === "instagram" ? "insta_status" : ch === "whatsapp" ? "whatsapp_status" : "email_status";
-      const contactedField = ch === "instagram" ? "insta_contacted_at" : ch === "whatsapp" ? "whatsapp_contacted_at" : "email_contacted_at";
+      const statusField = ch === "instagram" ? "insta_status" : ch === "whatsapp" ? "whatsapp_status" : ch === "linkedin" ? "linkedin_status" : "email_status";
+      const contactedField = ch === "instagram" ? "insta_contacted_at" : ch === "whatsapp" ? "whatsapp_contacted_at" : ch === "linkedin" ? "linkedin_contacted_at" : "email_contacted_at";
 
       const revertTo = logEntry.action === "followed_up" ? "sent" : "pending";
       const updates: Record<string, any> = { [statusField]: revertTo };
@@ -716,6 +741,7 @@ export default function OutreachPage() {
             <div className="flex flex-wrap gap-2 sm:gap-3">
               {task.channel === "email" && <Button variant="secondary" size="sm" className="flex-1 sm:size-default" onClick={() => copyToClipboard(subject)}><Copy className="h-3.5 w-3.5 mr-1.5" /> Subject</Button>}
               <Button variant="secondary" size="sm" className="flex-1 sm:size-default" onClick={() => copyToClipboard(message)}><Copy className="h-3.5 w-3.5 mr-1.5" /> Message</Button>
+              {task.channel === "instagram" && <Button variant="secondary" size="sm" className="flex-1 sm:size-default text-orange-700 border-orange-200 hover:bg-orange-50" onClick={() => { copyToClipboard(getVendorComment(vendor)); if (link) openLink(link); }}><ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Comment</Button>}
               <Button variant="secondary" size="sm" className="flex-1 sm:size-default" onClick={handleSessionOpen}><ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Open</Button>
             </div>
 
@@ -748,7 +774,7 @@ export default function OutreachPage() {
 
   // ─── Render: Queue + Done Today ──────────────────────────────────────────
 
-  const totalTarget = plan.progress.instagram.target + plan.progress.whatsapp.target + plan.progress.email.target;
+  const totalTarget = plan.progress.instagram.target + plan.progress.whatsapp.target + plan.progress.email.target + plan.progress.linkedin.target;
   const overallPct = totalTarget > 0 ? Math.round((plan.doneToday.total / totalTarget) * 100) : 0;
 
   return (
@@ -788,11 +814,11 @@ export default function OutreachPage() {
       )}
 
       {/* ─── Mini Progress ──────────────────────────────────────────────── */}
-      <div className="grid grid-cols-3 gap-2 sm:gap-3">
-        {(["instagram", "whatsapp", "email"] as Channel[]).map(ch => {
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+        {(["instagram", "whatsapp", "email", "linkedin"] as Channel[]).map(ch => {
           const p = plan.progress[ch];
           const pct = Math.min(p.pct, 100);
-          const barColor = ch === "instagram" ? "bg-pink-500" : ch === "whatsapp" ? "bg-green-500" : "bg-blue-500";
+          const barColor = ch === "instagram" ? "bg-pink-500" : ch === "whatsapp" ? "bg-green-500" : ch === "linkedin" ? "bg-sky-500" : "bg-blue-500";
           return (
             <div key={ch} className="rounded-lg border p-3">
               <div className="flex items-center justify-between mb-1.5">
@@ -842,7 +868,7 @@ export default function OutreachPage() {
         <div className="space-y-3">
           {/* Filters */}
           <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
-            {(["all", "instagram", "whatsapp", "email"] as const).map(f => (
+            {(["all", "instagram", "whatsapp", "email", "linkedin"] as const).map(f => (
               <button key={f} onClick={() => setChannelFilter(f)} className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${channelFilter === f ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
                 {f === "all" ? "All Channels" : CH_LABEL[f]}
               </button>
@@ -1085,6 +1111,7 @@ export default function OutreachPage() {
                           <div className="flex flex-wrap gap-2">
                             {task.channel === "email" && <Button size="sm" variant="outline" onClick={() => copyToClipboard(subject)}><Copy className="h-3 w-3 mr-1.5" /> Copy Subject</Button>}
                             <Button size="sm" variant="outline" onClick={() => copyToClipboard(message)}><Copy className="h-3 w-3 mr-1.5" /> Copy Message</Button>
+                            {task.channel === "instagram" && <Button size="sm" variant="outline" className="text-orange-700 border-orange-200 hover:bg-orange-50" onClick={() => { copyToClipboard(getVendorComment(vendor)); if (link) openLink(link); }}><ExternalLink className="h-3 w-3 mr-1.5" /> Comment</Button>}
                             <Button size="sm" variant="outline" onClick={() => { copyToClipboard(message); if (link) openLink(link); }}><ExternalLink className="h-3 w-3 mr-1.5" /> Open {CH_LABEL[task.channel]}</Button>
                             <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" disabled={!!actionInProgress} onClick={() => markSent(task)}>
                               {actionInProgress === `sent-${task.vendorId}` ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <CheckCircle2 className="h-3 w-3 mr-1.5" />} Mark Sent
@@ -1119,7 +1146,7 @@ export default function OutreachPage() {
 
           {/* Channel filter for attention tab */}
           <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
-            {(["all", "instagram", "whatsapp", "email"] as const).map(f => (
+            {(["all", "instagram", "whatsapp", "email", "linkedin"] as const).map(f => (
               <button key={f} onClick={() => setChannelFilter(f)} className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${channelFilter === f ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
                 {f === "all" ? "All Channels" : CH_LABEL[f]}
               </button>
@@ -1237,6 +1264,7 @@ export default function OutreachPage() {
                           <div className="flex flex-wrap gap-2">
                             {task.channel === "email" && subject && <Button size="sm" variant="outline" onClick={() => copyToClipboard(subject)}><Copy className="h-3 w-3 mr-1.5" /> Copy Subject</Button>}
                             <Button size="sm" variant="outline" onClick={() => copyToClipboard(message)}><Copy className="h-3 w-3 mr-1.5" /> Copy Message</Button>
+                            {task.channel === "instagram" && <Button size="sm" variant="outline" className="text-orange-700 border-orange-200 hover:bg-orange-50" onClick={() => { copyToClipboard(getVendorComment(vendor)); if (link) openLink(link); }}><ExternalLink className="h-3 w-3 mr-1.5" /> Comment</Button>}
                             <Button size="sm" variant="outline" onClick={() => { copyToClipboard(message); if (link) openLink(link); }}><ExternalLink className="h-3 w-3 mr-1.5" /> Open {CH_LABEL[task.channel]}</Button>
                             <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" disabled={!!actionInProgress} onClick={() => markSent(task)}>
                               {actionInProgress === `sent-${task.vendorId}` ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <CheckCircle2 className="h-3 w-3 mr-1.5" />} Mark Sent

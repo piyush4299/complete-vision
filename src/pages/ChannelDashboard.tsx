@@ -13,7 +13,7 @@ import { ResponseActions } from "@/components/ResponseActions";
 import { VendorTimeline } from "@/components/VendorTimeline";
 
 interface ChannelDashboardProps {
-  channel: "instagram" | "whatsapp" | "email";
+  channel: "instagram" | "whatsapp" | "email" | "linkedin";
   title: string;
   icon: string;
   hasField: string;
@@ -80,6 +80,7 @@ export default function ChannelDashboard({ channel, title, icon, hasField, statu
     if (channel === "instagram") return v.insta_message || "";
     if (channel === "whatsapp") return v.whatsapp_message || "";
     if (channel === "email") return v.email_body || "";
+    if (channel === "linkedin") return v.linkedin_message || "";
     return "";
   };
 
@@ -87,6 +88,7 @@ export default function ChannelDashboard({ channel, title, icon, hasField, statu
     if (channel === "instagram") return v.profile_url;
     if (channel === "whatsapp") return `https://wa.me/91${v.phone}?text=${encodeURIComponent(v.whatsapp_message || "")}`;
     if (channel === "email") return `mailto:${v.email}?subject=${encodeURIComponent(v.email_subject || "")}&body=${encodeURIComponent(v.email_body || "")}`;
+    if (channel === "linkedin") return v.linkedin_url || `https://www.linkedin.com/in/${v.linkedin_handle || ""}`;
     return "";
   };
 
@@ -94,6 +96,7 @@ export default function ChannelDashboard({ channel, title, icon, hasField, statu
     if (channel === "instagram") return v.username ? `@${v.username}` : "—";
     if (channel === "whatsapp") return v.phone || "—";
     if (channel === "email") return v.email || "—";
+    if (channel === "linkedin") return v.linkedin_handle ? `@${v.linkedin_handle}` : "—";
     return "—";
   };
 

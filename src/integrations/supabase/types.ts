@@ -237,6 +237,7 @@ export type Database = {
           full_name: string
           has_email: boolean
           has_instagram: boolean
+          has_linkedin: boolean
           has_phone: boolean
           hot_lead_claimed_at: string | null
           hot_lead_claimed_by: string | null
@@ -244,6 +245,11 @@ export type Database = {
           insta_contacted_at: string | null
           insta_message: string | null
           insta_status: string
+          linkedin_contacted_at: string | null
+          linkedin_handle: string | null
+          linkedin_message: string | null
+          linkedin_status: string
+          linkedin_url: string | null
           message: string
           needs_review: boolean
           notes: string | null
@@ -275,6 +281,7 @@ export type Database = {
           full_name?: string
           has_email?: boolean
           has_instagram?: boolean
+          has_linkedin?: boolean
           has_phone?: boolean
           hot_lead_claimed_at?: string | null
           hot_lead_claimed_by?: string | null
@@ -282,6 +289,11 @@ export type Database = {
           insta_contacted_at?: string | null
           insta_message?: string | null
           insta_status?: string
+          linkedin_contacted_at?: string | null
+          linkedin_handle?: string | null
+          linkedin_message?: string | null
+          linkedin_status?: string
+          linkedin_url?: string | null
           message?: string
           needs_review?: boolean
           notes?: string | null
@@ -313,6 +325,7 @@ export type Database = {
           full_name?: string
           has_email?: boolean
           has_instagram?: boolean
+          has_linkedin?: boolean
           has_phone?: boolean
           hot_lead_claimed_at?: string | null
           hot_lead_claimed_by?: string | null
@@ -320,6 +333,11 @@ export type Database = {
           insta_contacted_at?: string | null
           insta_message?: string | null
           insta_status?: string
+          linkedin_contacted_at?: string | null
+          linkedin_handle?: string | null
+          linkedin_message?: string | null
+          linkedin_status?: string
+          linkedin_url?: string | null
           message?: string
           needs_review?: boolean
           notes?: string | null

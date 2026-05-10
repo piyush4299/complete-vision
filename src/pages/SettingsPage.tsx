@@ -298,11 +298,15 @@ export default function SettingsPage() {
 
   const settingsConfig = isAdmin ? [...agentSettings, ...adminOnlySettings] : agentSettings;
 
-  const channelLabel = (ch: string) => ch === "instagram" ? "📸 Instagram" : ch === "whatsapp" ? "💬 WhatsApp" : "📧 Email";
+  const channelLabel = (ch: string) => ch === "instagram" ? "📸 Instagram" : ch === "whatsapp" ? "💬 WhatsApp" : ch === "linkedin" ? "💼 LinkedIn" : "📧 Email";
   const typeLabel = (t: string) => {
     if (t.startsWith("initial_")) return `Initial #${t.split("_")[1]}`;
+    if (t.startsWith("comment_")) return `Comment #${t.split("_")[1]}`;
+    if (t === "comment") return "Comment";
     if (t === "followup") return "Follow-up";
-    if (t === "reengagement") return "Re-engagement";
+    if (t === "final_followup") return "Final Follow-up";
+    if (t === "re_engagement" || t === "reengagement") return "Re-engagement";
+    if (t === "initial") return "Initial";
     return t;
   };
 

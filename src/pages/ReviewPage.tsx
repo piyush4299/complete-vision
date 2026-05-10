@@ -131,6 +131,7 @@ export default function ReviewPage() {
                   <TableHead>Instagram</TableHead>
                   <TableHead>Phone</TableHead>
                   <TableHead>Email</TableHead>
+                  <TableHead>LinkedIn</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead>City</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -143,6 +144,7 @@ export default function ReviewPage() {
                     <TableCell className="text-xs font-mono">{v.username ? `@${v.username}` : "—"}</TableCell>
                     <TableCell className="text-xs">{v.phone || "—"}</TableCell>
                     <TableCell className="text-xs">{v.email || "—"}</TableCell>
+                    <TableCell className="text-xs font-mono">{v.linkedin_handle ? `@${v.linkedin_handle}` : "—"}</TableCell>
                     <TableCell>
                       <Select value={edits[v.id]?.category || v.category} onValueChange={val => updateEdit(v.id, "category", val)}>
                         <SelectTrigger className="w-full sm:w-36 h-8 text-xs"><SelectValue /></SelectTrigger>

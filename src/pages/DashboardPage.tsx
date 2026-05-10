@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/StatusBadge";
 import { VendorTimeline } from "@/components/VendorTimeline";
-import { Users, UserCheck, UserX, Heart, Trophy, ChevronLeft, ChevronRight, Instagram, Phone, Mail, Globe, ThumbsDown, Ban } from "lucide-react";
+import { Users, UserCheck, UserX, Heart, Trophy, ChevronLeft, ChevronRight, Instagram, Phone, Mail, Globe, ThumbsDown, Ban, Linkedin } from "lucide-react";
 import { CATEGORIES } from "@/lib/vendor-utils";
 import { ResponseActions } from "@/components/ResponseActions";
 import { useAuth } from "@/contexts/AuthContext";
@@ -24,6 +24,7 @@ function computeOverallStatus(v: any): string {
     { has: v.has_instagram, status: v.insta_status },
     { has: v.has_phone, status: v.whatsapp_status },
     { has: v.has_email, status: v.email_status },
+    { has: v.has_linkedin, status: v.linkedin_status },
   ];
   const available = channels.filter(c => c.has);
   if (available.length === 0) return "pending";
@@ -51,7 +52,7 @@ function OverviewTab() {
 
   useEffect(() => { fetchData(); }, []);
 
-  const cities = useMemo(() => [...new Set(vendors.map(v => v.city))].sort(), [vendors]);
+  const cities = useMemo(() => [...new Set(vendors.map(v => v.city))].filter(Boolean).sort(), [vendors]);
 
   const stats = useMemo(() => {
     const statusMap = vendors.map(v => computeOverallStatus(v));
@@ -171,6 +172,11 @@ function OverviewTab() {
                 <TableHead className="w-[180px] font-semibold text-xs uppercase tracking-wider text-muted-foreground/70">
                   <div className="flex items-center gap-1.5">
                     <Mail className="h-3.5 w-3.5" /> Email
+                  </div>
+                </TableHead>
+                <TableHead className="w-[160px] font-semibold text-xs uppercase tracking-wider text-muted-foreground/70">
+                  <div className="flex items-center gap-1.5">
+                    <Linkedin className="h-3.5 w-3.5" /> LinkedIn
                   </div>
                 </TableHead>
                 <TableHead className="w-[120px] font-semibold text-xs uppercase tracking-wider text-muted-foreground/70">
@@ -296,11 +302,11 @@ function CallsTab() {
   );
 }
 
-const TAB_OPTIONS = ["overview", "instagram", "whatsapp", "email", "calls"] as const;
+const TAB_OPTIONS = ["overview", "instagram", "whatsapp", "email", "linkedin", "calls"] as const;
 type TabValue = typeof TAB_OPTIONS[number];
 
 function TeamActivityCard() {
-  const [teamData, setTeamData] = useState<{ name: string; instagram: number; whatsapp: number; email: number }[]>([]);
+  const [teamData, setTeamData] = useState<{ name: string; instagram: number; whatsapp: number; email: number; linkedin: number }[]>([]);
 
   useEffect(() => {
     const fetchTeamActivity = async () => {
@@ -318,6 +324,7 @@ function TeamActivityCard() {
         instagram: sentLogs.filter(l => l.user_id === m.id && l.channel === "instagram").length,
         whatsapp: sentLogs.filter(l => l.user_id === m.id && l.channel === "whatsapp").length,
         email: sentLogs.filter(l => l.user_id === m.id && l.channel === "email").length,
+        linkedin: sentLogs.filter(l => l.user_id === m.id && l.channel === "linkedin").length,
       }));
       setTeamData(rows);
     };
@@ -340,6 +347,7 @@ function TeamActivityCard() {
                 <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground">IG</th>
                 <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground">WA</th>
                 <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground">Email</th>
+                <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground">LI</th>
                 <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground">Total</th>
               </tr>
             </thead>
@@ -350,7 +358,8 @@ function TeamActivityCard() {
                   <td className="px-3 py-2 text-center">{d.instagram}</td>
                   <td className="px-3 py-2 text-center">{d.whatsapp}</td>
                   <td className="px-3 py-2 text-center">{d.email}</td>
-                  <td className="px-3 py-2 text-center font-semibold">{d.instagram + d.whatsapp + d.email}</td>
+                  <td className="px-3 py-2 text-center">{d.linkedin}</td>
+                  <td className="px-3 py-2 text-center font-semibold">{d.instagram + d.whatsapp + d.email + d.linkedin}</td>
                 </tr>
               ))}
             </tbody>
@@ -384,7 +393,7 @@ export default function DashboardPage() {
       {currentUser?.role === "admin" && <TeamActivityCard />}
 
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
+        <TabsList className="grid w-full grid-cols-6 lg:w-auto lg:inline-grid">
           <TabsTrigger value="overview" className="gap-1.5">
             <Users className="h-3.5 w-3.5" />
             Overview
@@ -400,6 +409,10 @@ export default function DashboardPage() {
           <TabsTrigger value="email" className="gap-1.5">
             <Mail className="h-3.5 w-3.5" />
             Email
+          </TabsTrigger>
+          <TabsTrigger value="linkedin" className="gap-1.5">
+            <Linkedin className="h-3.5 w-3.5" />
+            LinkedIn
           </TabsTrigger>
           <TabsTrigger value="calls" className="gap-1.5">
             <Phone className="h-3.5 w-3.5" />
@@ -434,6 +447,15 @@ export default function DashboardPage() {
             channel="email" title="Email" icon="📧"
             hasField="has_email" statusField="email_status"
             contactedAtField="email_contacted_at" followUpDays={4}
+            embedded
+          />
+        </TabsContent>
+
+        <TabsContent value="linkedin">
+          <ChannelDashboard
+            channel="linkedin" title="LinkedIn" icon="💼"
+            hasField="has_linkedin" statusField="linkedin_status"
+            contactedAtField="linkedin_contacted_at" followUpDays={5}
             embedded
           />
         </TabsContent>

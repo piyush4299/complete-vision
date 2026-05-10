@@ -340,13 +340,13 @@ export default function TodayPage() {
                 <StatBlock
                   label="Yesterday"
                   value={plan.yesterday.total}
-                  sub={`${plan.yesterday.insta} IG · ${plan.yesterday.wa} WA · ${plan.yesterday.email} Em`}
+                  sub={`${plan.yesterday.insta} IG · ${plan.yesterday.wa} WA · ${plan.yesterday.email} Em · ${plan.yesterday.linkedin} LI`}
                   icon={<TrendingUp className="h-4 w-4 text-muted-foreground" />}
                 />
                 <StatBlock
                   label="This Week"
                   value={plan.thisWeek.total}
-                  sub={`${plan.thisWeek.insta} IG · ${plan.thisWeek.wa} WA · ${plan.thisWeek.email} Em`}
+                  sub={`${plan.thisWeek.insta} IG · ${plan.thisWeek.wa} WA · ${plan.thisWeek.email} Em · ${plan.thisWeek.linkedin} LI`}
                   icon={<TrendingUp className="h-4 w-4 text-muted-foreground" />}
                 />
                 <StatBlock

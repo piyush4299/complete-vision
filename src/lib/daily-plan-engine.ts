@@ -3,7 +3,7 @@ import { SEQUENCE_TIERS, determineSequenceType, SEQUENCE_LABELS } from "./sequen
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type Channel = "instagram" | "whatsapp" | "email";
+type Channel = "instagram" | "whatsapp" | "email" | "linkedin";
 
 export interface DailyTask {
   vendorId: string;
@@ -49,6 +49,7 @@ export interface PerformanceSnapshot {
   insta: number;
   wa: number;
   email: number;
+  linkedin: number;
   replies: number;
   signups: number;
 }
@@ -57,7 +58,7 @@ export interface DailyPlan {
   sessions: Session[];
   plannedTasks: DailyTask[];
   progress: Record<Channel, ChannelProgress>;
-  doneToday: { instagram: number; whatsapp: number; email: number; total: number; replies: number };
+  doneToday: { instagram: number; whatsapp: number; email: number; linkedin: number; total: number; replies: number };
   yesterday: PerformanceSnapshot;
   thisWeek: PerformanceSnapshot;
   hotLeads: any[];
@@ -174,6 +175,7 @@ function vendorHasChannel(v: any, ch: string): boolean {
   if (ch === "instagram") return !!v.has_instagram;
   if (ch === "whatsapp") return !!v.has_phone;
   if (ch === "email") return !!v.has_email;
+  if (ch === "linkedin") return !!v.has_linkedin;
   return false;
 }
 
@@ -181,6 +183,7 @@ function vendorChannelStatus(v: any, ch: string): string {
   if (ch === "instagram") return v.insta_status || "pending";
   if (ch === "whatsapp") return v.whatsapp_status || "pending";
   if (ch === "email") return v.email_status || "pending";
+  if (ch === "linkedin") return v.linkedin_status || "pending";
   return "pending";
 }
 
@@ -188,6 +191,7 @@ function vendorContactedAt(v: any, ch: string): string | null {
   if (ch === "instagram") return v.insta_contacted_at;
   if (ch === "whatsapp") return v.whatsapp_contacted_at;
   if (ch === "email") return v.email_contacted_at;
+  if (ch === "linkedin") return v.linkedin_contacted_at;
   return null;
 }
 
@@ -196,6 +200,7 @@ function getVendorChannels(v: any): Channel[] {
   if (v.has_instagram) chs.push("instagram");
   if (v.has_phone) chs.push("whatsapp");
   if (v.has_email) chs.push("email");
+  if (v.has_linkedin) chs.push("linkedin");
   return chs;
 }
 
@@ -235,10 +240,11 @@ export function buildDailyPlan(
     instagram: mySentToday.filter(l => l.channel === "instagram").length,
     whatsapp:  mySentToday.filter(l => l.channel === "whatsapp").length,
     email:     mySentToday.filter(l => l.channel === "email").length,
+    linkedin:  mySentToday.filter(l => l.channel === "linkedin").length,
     total: 0,
     replies: vendors.filter(v => v.responded_at && isToday(v.responded_at)).length,
   };
-  doneToday.total = doneToday.instagram + doneToday.whatsapp + doneToday.email;
+  doneToday.total = doneToday.instagram + doneToday.whatsapp + doneToday.email + doneToday.linkedin;
 
   // ── Step 2: Calculate safe limits per channel ────────────────────────────
 
@@ -257,16 +263,21 @@ export function buildDailyPlan(
 
   const waTarget    = parseInt(settings.whatsapp_daily_target || "20");
   const emailTarget = parseInt(settings.email_daily_target || "15");
+  const linkedinTarget = parseInt(settings.linkedin_daily_target || "20");
 
   const agentCount = Math.max(1, totalAgents);
   const myInstaTarget = Math.ceil(effectiveInstaDaily / agentCount);
   const myWaTarget    = Math.ceil(waTarget / agentCount);
   const myEmailTarget = Math.ceil(emailTarget / agentCount);
+  const myLinkedinTarget = Math.ceil(linkedinTarget / agentCount);
+
+  const weeklyLinkedin = weekLogs.filter(l => l.channel === "linkedin").length;
 
   const remaining: Record<Channel, number> = {
     instagram: Math.max(0, myInstaTarget - doneToday.instagram),
     whatsapp:  Math.max(0, myWaTarget - doneToday.whatsapp),
     email:     Math.max(0, myEmailTarget - doneToday.email),
+    linkedin:  Math.max(0, myLinkedinTarget - doneToday.linkedin),
   };
 
   const progress: Record<Channel, ChannelProgress> = {
@@ -300,6 +311,16 @@ export function buildDailyPlan(
       pct: myEmailTarget > 0 ? Math.round((doneToday.email / myEmailTarget) * 100) : 0,
       safe: true,
     },
+    linkedin: {
+      doneToday: doneToday.linkedin,
+      target: myLinkedinTarget,
+      safeLimit: 25,
+      remaining: remaining.linkedin,
+      weeklyDone: weeklyLinkedin,
+      weeklyCap: 100,
+      pct: myLinkedinTarget > 0 ? Math.round((doneToday.linkedin / myLinkedinTarget) * 100) : 0,
+      safe: doneToday.linkedin < 25,
+    },
   };
 
   // ── Step 3: Build task list ──────────────────────────────────────────────
@@ -308,6 +329,7 @@ export function buildDailyPlan(
     instagram: parseInt(settings.days_insta_followup || "5"),
     whatsapp:  parseInt(settings.days_wa_followup || "3"),
     email:     parseInt(settings.days_email_followup || "4"),
+    linkedin:  parseInt(settings.days_linkedin_followup || "5"),
   };
 
   const seqByVendor = new Map<string, any>();
@@ -595,6 +617,7 @@ export function buildDailyPlan(
     insta: sentLogsYesterday.filter(l => l.channel === "instagram").length,
     wa: sentLogsYesterday.filter(l => l.channel === "whatsapp").length,
     email: sentLogsYesterday.filter(l => l.channel === "email").length,
+    linkedin: sentLogsYesterday.filter(l => l.channel === "linkedin").length,
     replies: vendors.filter(v => v.responded_at && isYesterday(v.responded_at)).length,
     signups: vendors.filter(v => v.overall_status === "converted" && v.updated_at && isYesterday(v.updated_at)).length,
   };
@@ -605,6 +628,7 @@ export function buildDailyPlan(
     insta: sentLogsWeek.filter(l => l.channel === "instagram").length,
     wa: sentLogsWeek.filter(l => l.channel === "whatsapp").length,
     email: sentLogsWeek.filter(l => l.channel === "email").length,
+    linkedin: sentLogsWeek.filter(l => l.channel === "linkedin").length,
     replies: vendors.filter(v => v.responded_at && isThisWeek(v.responded_at)).length,
     signups: vendors.filter(v => v.overall_status === "converted" && v.updated_at && isThisWeek(v.updated_at)).length,
   };
