@@ -153,10 +153,14 @@ export default function OutreachPage() {
   // ─── Data Fetching ───────────────────────────────────────────────────────
 
   const fetchData = async () => {
+    // Only fetch logs from the last 14 days to avoid Supabase's 1000-row default limit
+    const twoWeeksAgo = new Date();
+    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+    
     const [{ data: v }, { data: seq }, { data: l }, { data: s }, { data: mt }, { data: tm }] = await Promise.all([
       supabase.from("vendors").select("*"),
       supabase.from("vendor_sequences").select("*"),
-      supabase.from("outreach_log").select("*"),
+      supabase.from("outreach_log").select("*").gte("created_at", twoWeeksAgo.toISOString()).order("created_at", { ascending: false }),
       supabase.from("settings").select("*"),
       supabase.from("message_templates").select("*").eq("is_active", true),
       supabase.from("team_members").select("*").eq("is_active", true),
@@ -164,6 +168,9 @@ export default function OutreachPage() {
     setVendors(v ?? []);
     setSequences(seq ?? []);
     setLogs(l ?? []);
+    const todayStr = new Date().toDateString();
+    const todayLogs = (l ?? []).filter(log => new Date(log.created_at).toDateString() === todayStr);
+    console.log("[fetchData] Total logs:", (l ?? []).length, "| Today's logs:", todayLogs.length, "| Today:", todayStr);
     setMessageTemplates(mt ?? []);
     setTeamMembers(tm ?? []);
     const map: Record<string, string> = {};
@@ -340,11 +347,16 @@ export default function OutreachPage() {
         overall_status: (!vendor.overall_status || vendor.overall_status === "pending") ? "in_progress" : vendor.overall_status,
       }).eq("id", vendor.id);
 
-      await supabase.from("outreach_log").insert({
+      const { error: logError } = await supabase.from("outreach_log").insert({
         vendor_id: vendor.id, channel: task.channel, action: newStatus,
         message_sent: getVendorMessage(vendor, task.channel, task.type === "followup"),
         user_id: currentUser?.id || null,
-      });
+      } as any);
+      if (logError) {
+        console.error("[markSent] outreach_log insert failed:", logError);
+      } else {
+        console.log("[markSent] outreach_log insert SUCCESS for", vendor.full_name, task.channel, newStatus);
+      }
 
       // Parallel mode only updates this channel; don't advance DB sequence (would desync other open channels).
       if (settings.drip_sequence_enabled !== "false") {
